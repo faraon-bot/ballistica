@@ -700,6 +700,14 @@ class Spaz(bs.Actor):
         else:
             self.shield_decay_timer = None
 
+    def increase_strength(self, punch_power_increase: float, hitpoints_increase: int) -> None:
+        """
+        Increase the character's strength by increasing punch power and hitpoints.
+        """
+        self._punch_power_scale += punch_power_increase
+        self.hitpoints += hitpoints_increase
+        self.hitpoints_max += hitpoints_increase
+
     @override
     def handlemessage(self, msg: Any) -> Any:
         # pylint: disable=too-many-return-statements
