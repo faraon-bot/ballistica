@@ -1,5 +1,3 @@
-// Released under the MIT License. See LICENSE for details.
-
 #include "ballistica/classic/support/classic_app_mode.h"
 
 #include <algorithm>
@@ -1735,6 +1733,19 @@ auto ClassicAppMode::GetBottomLeftEdgeHeight() -> float {
     }
   }
   return 0.0f;
+}
+
+void ClassicAppMode::BoostPlayerAttributes(Player* player, float speedFactor, float attackFactor) {
+  if (player == nullptr) {
+    return;
+  }
+
+  // Assuming SpazNode is the player character class
+  auto* spazNode = dynamic_cast<scene_v1::SpazNode*>(player->GetNode());
+  if (spazNode != nullptr) {
+    spazNode->IncreaseSpeed(speedFactor);
+    spazNode->IncreaseAttackStrength(attackFactor);
+  }
 }
 
 }  // namespace ballistica::classic

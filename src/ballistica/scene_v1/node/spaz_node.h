@@ -1,4 +1,4 @@
-// Released under the MIT License. See LICENSE for details.
+ // Released under the MIT License. See LICENSE for details.
 
 #ifndef BALLISTICA_SCENE_V1_NODE_SPAZ_NODE_H_
 #define BALLISTICA_SCENE_V1_NODE_SPAZ_NODE_H_
@@ -236,6 +236,10 @@ class SpazNode : public Node {
   // Preserve some old behavior so we dont have to re-code the demo.
   auto demo_mode() const -> bool { return demo_mode_; }
   void set_demo_mode(bool val) { demo_mode_ = val; }
+
+  // New methods to increase speed and attack strength
+  void IncreaseSpeed(float factor);
+  void IncreaseAttackStrength(float factor);
 
  private:
   enum ShatterDamage {

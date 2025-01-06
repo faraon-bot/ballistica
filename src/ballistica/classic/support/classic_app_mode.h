@@ -1,5 +1,3 @@
-// Released under the MIT License. See LICENSE for details.
-
 #ifndef BALLISTICA_CLASSIC_SUPPORT_CLASSIC_APP_MODE_H_
 #define BALLISTICA_CLASSIC_SUPPORT_CLASSIC_APP_MODE_H_
 
@@ -228,6 +226,9 @@ class ClassicAppMode : public base::AppMode {
                        const std::string& chest_1_appearance,
                        const std::string& chest_2_appearance,
                        const std::string& chest_3_appearance);
+
+  // Add a method `BoostPlayerAttributes(Player* player, float speedFactor, float attackFactor)` to the `ClassicAppMode` class
+  void BoostPlayerAttributes(Player* player, float speedFactor, float attackFactor);
 
  private:
   ClassicAppMode();

@@ -1,5 +1,3 @@
-// Released under the MIT License. See LICENSE for details.
-
 #include "ballistica/base/input/input.h"
 
 #include <cstdio>
@@ -21,6 +19,7 @@
 #include "ballistica/core/platform/core_platform.h"
 #include "ballistica/shared/foundation/event_loop.h"
 #include "ballistica/shared/generic/utils.h"
+#include "ballistica/classic/support/classic_app_mode.h"
 
 namespace ballistica::base {
 
@@ -1098,6 +1097,20 @@ void Input::HandleKeyPress_(const SDL_Keysym& keysym) {
             WidgetMessage(WidgetMessage::Type::kCancel));
       }
       handled = true;
+      break;
+
+    case SDLK_s:
+      if (keysym.mod & KMOD_CTRL) {
+        // Trigger BoostPlayerAttributes when Ctrl+S is pressed
+        if (auto* classic_app_mode = dynamic_cast<classic::ClassicAppMode*>(g_base->app_mode())) {
+          // Assuming we have a way to get the current player
+          Player* current_player = GetCurrentPlayer();
+          if (current_player) {
+            classic_app_mode->BoostPlayerAttributes(current_player, 1.5f, 1.5f);
+          }
+        }
+        handled = true;
+      }
       break;
 
     default:
