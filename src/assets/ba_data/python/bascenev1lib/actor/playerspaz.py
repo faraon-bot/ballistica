@@ -307,3 +307,8 @@ class PlayerSpaz(Spaz):
             assert self.node
             assert player.node
             self.node.connectattr('torso_position', player.node, 'position')
+
+    def on_powerup_pickup(self, powerup_type: str) -> None:
+        """Handle the event when a powerup is picked up."""
+        if powerup_type == 'strength':
+            self.increase_strength(punch_power_increase=0.5, hitpoints_increase=100)
