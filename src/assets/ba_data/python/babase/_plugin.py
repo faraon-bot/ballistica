@@ -41,9 +41,19 @@ class PluginSubsystem(AppSubsystem):
         # The set of live active plugin objects.
         self.active_plugins: list[babase.Plugin] = []
 
+        # Track whether meta-scan has been run to prevent re-running.
+        self.meta_scan_completed = False
+
+        # Track whether on_app_launch() code has been run to prevent re-running.
+        self.on_app_launch_completed = False
+
     def on_meta_scan_complete(self) -> None:
         """Called when meta-scanning is complete."""
         from babase._language import Lstr
+
+        if self.meta_scan_completed:
+            return
+        self.meta_scan_completed = True
 
         config_changed = False
         found_new = False
@@ -160,6 +170,10 @@ class PluginSubsystem(AppSubsystem):
 
     @override
     def on_app_running(self) -> None:
+        if self.on_app_launch_completed:
+            return
+        self.on_app_launch_completed = True
+
         # Load up our plugins and go ahead and call their on_app_running
         # calls.
         self.load_plugins()
