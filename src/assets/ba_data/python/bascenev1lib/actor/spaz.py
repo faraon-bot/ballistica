@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 POWERUP_WEAR_OFF_TIME = 20000
 
 # Obsolete - just used for demo guy now.
-BASE_PUNCH_POWER_SCALE = 1.2
+BASE_PUNCH_POWER_SCALE = 2.0
 BASE_PUNCH_COOLDOWN = 400
 
 
@@ -101,7 +101,7 @@ class Spaz(bs.Actor):
         self.source_player = source_player
         self._dead = False
         if self._demo_mode:  # Preserve old behavior.
-            self._punch_power_scale = BASE_PUNCH_POWER_SCALE
+            self._punch_power_scale = 2.0
         else:
             self._punch_power_scale = factory.punch_power_scale
         self.fly = bs.getactivity().globalsnode.happy_thoughts_mode
@@ -196,7 +196,7 @@ class Spaz(bs.Actor):
         self.blast_radius = 2.0
         self.powerups_expire = powerups_expire
         if self._demo_mode:  # Preserve old behavior.
-            self._punch_cooldown = BASE_PUNCH_COOLDOWN
+            self._punch_cooldown = 200
         else:
             self._punch_cooldown = factory.punch_cooldown
         self._jump_cooldown = 250
@@ -642,8 +642,8 @@ class Spaz(bs.Actor):
         self.node.boxing_gloves = True
         self._has_boxing_gloves = True
         if self._demo_mode:  # Preserve old behavior.
-            self._punch_power_scale = 1.7
-            self._punch_cooldown = 300
+            self._punch_power_scale = 2.5
+            self._punch_cooldown = 150
         else:
             factory = SpazFactory.get()
             self._punch_power_scale = factory.punch_power_scale_gloves
@@ -1429,150 +1429,3 @@ class Spaz(bs.Actor):
             return
         self.shattered = True
         assert self.node
-        if self.frozen:
-            # Momentary flash of light.
-            light = bs.newnode(
-                'light',
-                attrs={
-                    'position': self.node.position,
-                    'radius': 0.5,
-                    'height_attenuated': False,
-                    'color': (0.8, 0.8, 1.0),
-                },
-            )
-
-            bs.animate(
-                light, 'intensity', {0.0: 3.0, 0.04: 0.5, 0.08: 0.07, 0.3: 0}
-            )
-            bs.timer(0.3, light.delete)
-
-            # Emit ice chunks.
-            bs.emitfx(
-                position=self.node.position,
-                velocity=self.node.velocity,
-                count=int(random.random() * 10.0 + 10.0),
-                scale=0.6,
-                spread=0.2,
-                chunk_type='ice',
-            )
-            bs.emitfx(
-                position=self.node.position,
-                velocity=self.node.velocity,
-                count=int(random.random() * 10.0 + 10.0),
-                scale=0.3,
-                spread=0.2,
-                chunk_type='ice',
-            )
-            SpazFactory.get().shatter_sound.play(
-                1.0,
-                position=self.node.position,
-            )
-        else:
-            SpazFactory.get().splatter_sound.play(
-                1.0,
-                position=self.node.position,
-            )
-        self.handlemessage(bs.DieMessage())
-        self.node.shattered = 2 if extreme else 1
-
-    def _hit_self(self, intensity: float) -> None:
-        if not self.node:
-            return
-        pos = self.node.position
-        self.handlemessage(
-            bs.HitMessage(
-                flat_damage=50.0 * intensity,
-                pos=pos,
-                force_direction=self.node.velocity,
-                hit_type='impact',
-            )
-        )
-        self.node.handlemessage('knockout', max(0.0, 50.0 * intensity))
-        sounds: Sequence[bs.Sound]
-        if intensity >= 5.0:
-            sounds = SpazFactory.get().impact_sounds_harder
-        elif intensity >= 3.0:
-            sounds = SpazFactory.get().impact_sounds_hard
-        else:
-            sounds = SpazFactory.get().impact_sounds_medium
-        sound = sounds[random.randrange(len(sounds))]
-        sound.play(position=pos, volume=5.0)
-
-    def _get_bomb_type_tex(self) -> bs.Texture:
-        factory = PowerupBoxFactory.get()
-        if self.bomb_type == 'sticky':
-            return factory.tex_sticky_bombs
-        if self.bomb_type == 'ice':
-            return factory.tex_ice_bombs
-        if self.bomb_type == 'impact':
-            return factory.tex_impact_bombs
-        raise ValueError('invalid bomb type')
-
-    def _flash_billboard(self, tex: bs.Texture) -> None:
-        assert self.node
-        self.node.billboard_texture = tex
-        self.node.billboard_cross_out = False
-        bs.animate(
-            self.node,
-            'billboard_opacity',
-            {0.0: 0.0, 0.1: 1.0, 0.4: 1.0, 0.5: 0.0},
-        )
-
-    def set_bomb_count(self, count: int) -> None:
-        """Sets the number of bombs this Spaz has."""
-        # We can't just set bomb_count because some bombs may be laid currently
-        # so we have to do a relative diff based on max.
-        diff = count - self._max_bomb_count
-        self._max_bomb_count += diff
-        self.bomb_count += diff
-
-    def _gloves_wear_off_flash(self) -> None:
-        if self.node:
-            self.node.boxing_gloves_flashing = True
-            self.node.billboard_texture = PowerupBoxFactory.get().tex_punch
-            self.node.billboard_opacity = 1.0
-            self.node.billboard_cross_out = True
-
-    def _gloves_wear_off(self) -> None:
-        if self._demo_mode:  # Preserve old behavior.
-            self._punch_power_scale = 1.2
-            self._punch_cooldown = BASE_PUNCH_COOLDOWN
-        else:
-            factory = SpazFactory.get()
-            self._punch_power_scale = factory.punch_power_scale
-            self._punch_cooldown = factory.punch_cooldown
-        self._has_boxing_gloves = False
-        if self.node:
-            PowerupBoxFactory.get().powerdown_sound.play(
-                position=self.node.position,
-            )
-            self.node.boxing_gloves = False
-            self.node.billboard_opacity = 0.0
-
-    def _multi_bomb_wear_off_flash(self) -> None:
-        if self.node:
-            self.node.billboard_texture = PowerupBoxFactory.get().tex_bomb
-            self.node.billboard_opacity = 1.0
-            self.node.billboard_cross_out = True
-
-    def _multi_bomb_wear_off(self) -> None:
-        self.set_bomb_count(self.default_bomb_count)
-        if self.node:
-            PowerupBoxFactory.get().powerdown_sound.play(
-                position=self.node.position,
-            )
-            self.node.billboard_opacity = 0.0
-
-    def _bomb_wear_off_flash(self) -> None:
-        if self.node:
-            self.node.billboard_texture = self._get_bomb_type_tex()
-            self.node.billboard_opacity = 1.0
-            self.node.billboard_cross_out = True
-
-    def _bomb_wear_off(self) -> None:
-        self.bomb_type = self.bomb_type_default
-        if self.node:
-            PowerupBoxFactory.get().powerdown_sound.play(
-                position=self.node.position,
-            )
-            self.node.billboard_opacity = 0.0
