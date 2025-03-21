@@ -890,11 +890,17 @@ py_check_prepass: dummymodules
 #   tests/test_efro/test_message.py
 TEST_TARGET ?= tests
 
-# Run all tests. (live execution verification)
+# Run tests (live execution verification).
 test: py_check_prepass
 	@$(PCOMMANDBATCH) echo BLU Running all tests...
 	@$(PCOMMAND) tests_warm_start
 	@$(PCOMMAND) pytest -v $(TEST_TARGET)
+
+# Run tests (live execution verification). Excludes slow ones.
+test-fast: py_check_prepass
+	@$(PCOMMANDBATCH) echo BLU Running all tests \(fast\)...
+	@$(PCOMMAND) tests_warm_start
+	@BA_TEST_FAST_MODE=1 $(PCOMMAND) pytest -v $(TEST_TARGET)
 
 test-verbose: py_check_prepass
 	@$(PCOMMANDBATCH) echo BLU Running all tests...
@@ -904,6 +910,9 @@ test-verbose: py_check_prepass
 
 # Run tests with any caching disabled.
 test-full: test
+
+# Run fast tests with any caching disabled.
+test-fast-full: test-fast
 
 # Shortcut to test efro.message only.
 test-message:
@@ -920,8 +929,14 @@ test-rpc:
 	@$(PCOMMAND) pytest -o log_cli=true -o log_cli_level=debug -s -vv \
       tests/test_efro/test_rpc.py
 
+# Shortcut to test efro.threadpool only.
+test-threadpool:
+	@$(PCOMMAND) pytest -o log_cli=true -o log_cli_level=debug -s -vv \
+      tests/test_efro/test_threadpool.py
+
 # Tell make which of these targets don't represent files.
-.PHONY: test test-verbose test-full test-message test-dataclassio test-rpc
+.PHONY: test test-fast test-verbose test-full test-fast-full \
+        test-message test-dataclassio test-rpc
 
 
 ################################################################################
@@ -935,7 +950,7 @@ preflight:
 	@$(MAKE) format
 	@$(MAKE) update
 	@$(MAKE) -j$(CPUS) py_check_prepass # Needs to be done explicitly first.
-	@$(MAKE) -j$(CPUS) cpplint pylint mypy test
+	@$(MAKE) -j$(CPUS) cpplint pylint mypy test-fast
 	@$(PCOMMANDBATCH) echo SGRN BLD PREFLIGHT SUCCESSFUL!
 
 # Same as 'preflight' without caching (all files are visited).
@@ -943,7 +958,7 @@ preflight-full:
 	@$(MAKE) format-full
 	@$(MAKE) update
 	@$(MAKE) -j$(CPUS) py_check_prepass # Needs to be done explicitly first.
-	@$(MAKE) -j$(CPUS) cpplint-full pylint-full mypy-full test-full
+	@$(MAKE) -j$(CPUS) cpplint-full pylint-full mypy-full test-fast-full
 	@$(PCOMMANDBATCH) echo SGRN BLD PREFLIGHT SUCCESSFUL!
 
 # Same as 'preflight' plus optional/slow extra checks.
@@ -951,7 +966,7 @@ preflight2:
 	@$(MAKE) format
 	@$(MAKE) update
 	@$(MAKE) -j$(CPUS) py_check_prepass # Needs to be done explicitly first.
-	@$(MAKE) -j$(CPUS) cpplint pylint mypy test
+	@$(MAKE) -j$(CPUS) cpplint pylint mypy test-fast
 	@$(PCOMMANDBATCH) echo SGRN BLD PREFLIGHT SUCCESSFUL!
 
 # Same as 'preflight2' but without caching (all files visited).
@@ -959,7 +974,7 @@ preflight2-full:
 	@$(MAKE) format-full
 	@$(MAKE) update
 	@$(MAKE) -j$(CPUS) py_check_prepass # Needs to be done explicitly first.
-	@$(MAKE) -j$(CPUS) cpplint-full pylint-full mypy-full test-full
+	@$(MAKE) -j$(CPUS) cpplint-full pylint-full mypy-full test-fast-full
 	@$(PCOMMANDBATCH) echo SGRN BLD PREFLIGHT SUCCESSFUL!
 
 # Tell make which of these targets don't represent files.
@@ -1185,27 +1200,27 @@ clion-staging: assets-cmake resources meta
 
 # Build the gui release docker image
 docker-gui-release: assets-cmake
-	$(PCOMMAND) build_docker_gui_release
+	$(PCOMMAND) compose_docker_gui_release
 
 # Build the gui debug docker image 
 docker-gui-debug: assets-cmake
-	$(PCOMMAND) build_docker_gui_debug
+	$(PCOMMAND) compose_docker_gui_debug
 
 # Build the server release docker image
 docker-server-release: assets-cmake
-	$(PCOMMAND) build_docker_server_release
+	$(PCOMMAND) compose_docker_server_release
 
 # Build the server debug docker image
 docker-server-debug: assets-cmake
-	$(PCOMMAND) build_docker_server_debug
+	$(PCOMMAND) compose_docker_server_debug
 
 # Build the gui release docker image for arm64
 docker-arm64-gui-release: assets-cmake
-	$(PCOMMAND) build_docker_arm64_gui_release
+	$(PCOMMAND) compose_docker_arm64_gui_release
 
 # Build the server release docker image for arm64
 docker-arm64-server-release: assets-cmake
-	$(PCOMMAND) build_docker_arm64_server_release 
+	$(PCOMMAND) compose_docker_arm64_server_release 
 
 # Save the bombsquad_server docker image to build/docker/bombsquad_server_docker.tar
 docker-save:
@@ -1435,6 +1450,9 @@ _windows-wsl-rebuild: env
    -property:Platform=$(WINPLT) \
    $(VISUAL_STUDIO_VERSION)
 	@$(PCOMMAND) echo BLU BLD Built build/windows/BallisticaKit$(WINPRJ).exe.
+
+_windows-update-dlls: env
+	@$(PCOMMAND) windows_update_dlls
 
 # Tell make which of these targets don't represent files.
 .PHONY: _windows-wsl-build _windows-wsl-rebuild

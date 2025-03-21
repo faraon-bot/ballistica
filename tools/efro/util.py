@@ -1,19 +1,22 @@
 # Released under the MIT License. See LICENSE for details.
 #
+# pylint: disable=too-many-lines
 """Small handy bits of functionality."""
 
 from __future__ import annotations
 
 import os
 import time
+import random
 import weakref
+import functools
 import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, cast, TypeVar, Generic, overload
+from typing import TYPE_CHECKING, cast, TypeVar, Generic, overload, ParamSpec
 
 if TYPE_CHECKING:
     import asyncio
-    from typing import Any, Callable, Literal
+    from typing import Any, Callable, Literal, Sequence
 
 T = TypeVar('T')
 ValT = TypeVar('ValT')
@@ -21,6 +24,8 @@ ArgT = TypeVar('ArgT')
 SelfT = TypeVar('SelfT')
 RetT = TypeVar('RetT')
 EnumT = TypeVar('EnumT', bound=Enum)
+
+P = ParamSpec('P')
 
 
 class _EmptyObj:
@@ -32,6 +37,36 @@ class _EmptyObj:
 _g_empty_weak_ref = weakref.ref(_EmptyObj())
 assert _g_empty_weak_ref() is None
 
+# Note to self: adding a special form of partial for when we don't need
+# to pass further args/kwargs (which I think is most cases). Even though
+# partial is now type-checked in Mypy (as of Nov 2024) there are still some
+# pitfalls that this avoids (see func docs below). Perhaps it would make
+# sense to simply define a Call class for this purpose; it might be more
+# efficient than wrapping partial anyway (should test this).
+if TYPE_CHECKING:
+
+    def strict_partial(
+        func: Callable[P, T], *args: P.args, **kwargs: P.kwargs
+    ) -> Callable[[], T]:
+        """A version of functools.partial requiring all args to be passed.
+
+        This helps avoid pitfalls where a function is wrapped in a
+        partial but then an extra required arg is added to the function
+        but no type checking error is triggered at usage sites because
+        vanilla partial assumes that extra arg will be provided at call
+        time.
+
+        Note: it would seem like this pitfall could also be avoided on
+        the back end by ensuring that the thing accepting the partial
+        asks for Callable[[], None] instead of just Callable, but as of
+        Nov 2024 it seems that Mypy does not support this; it in fact
+        allows partials to be passed for any callable signature(!).
+        """
+        ...
+
+else:
+    strict_partial = functools.partial
+
 
 def explicit_bool(val: bool) -> bool:
     """Return a non-inferable boolean value.
@@ -42,8 +77,6 @@ def explicit_bool(val: bool) -> bool:
     # pylint: disable=no-else-return
     if TYPE_CHECKING:
         # infer this! <boom>
-        import random
-
         return random.random() < 0.5
     else:
         return val
@@ -85,9 +118,22 @@ def utc_now_naive() -> datetime.datetime:
 
     This can be used to replace datetime.utcnow(), which is now deprecated.
     Most all code should migrate to use timezone-aware times instead of
-    this.
+    relying on this.
     """
     return datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+
+
+def utc_from_timestamp_naive(timestamp: float) -> datetime.datetime:
+    """Get a naive utc time from a timestamp.
+
+    This can be used to replace datetime.utcfromtimestamp(), which is now
+    deprecated. Most all code should migrate to use timezone-aware times
+    instead of relying on this.
+    """
+
+    return datetime.datetime.fromtimestamp(timestamp, tz=datetime.UTC).replace(
+        tzinfo=None
+    )
 
 
 def utc_today() -> datetime.datetime:
@@ -169,27 +215,33 @@ def data_size_str(bytecount: int, compact: bool = False) -> str:
 
 
 class DirtyBit:
-    """Manages whether a thing is dirty and regulates attempts to clean it.
+    """Manages whether a thing is dirty and regulates cleaning it.
 
-    To use, simply set the 'dirty' value on this object to True when some
-    action is needed, and then check the 'should_update' value to regulate
-    when attempts to clean it should be made. Set 'dirty' back to False after
-    a successful update.
-    If 'use_lock' is True, an asyncio Lock will be created and incorporated
-    into update attempts to prevent simultaneous updates (should_update will
-    only return True when the lock is unlocked). Note that It is up to the user
-    to lock/unlock the lock during the actual update attempt.
-    If a value is passed for 'auto_dirty_seconds', the dirtybit will flip
-    itself back to dirty after being clean for the given amount of time.
+    To use, simply set the 'dirty' value on this object to True when
+    some update is needed, and then check the 'should_update' value to
+    regulate when the actual update should occur. Set 'dirty' back to
+    False after a successful update.
+
+    If 'use_lock' is True, an asyncio Lock will be created and
+    incorporated into update attempts to prevent simultaneous updates
+    (should_update will only return True when the lock is unlocked).
+    Note that It is up to the user to lock/unlock the lock during the
+    actual update attempt.
+
+    If a value is passed for 'auto_dirty_seconds', the dirtybit will
+    flip itself back to dirty after being clean for the given amount of
+    time.
+
     'min_update_interval' can be used to enforce a minimum update
-    interval even when updates are successful (retry_interval only applies
-    when updates fail)
+    interval even when updates are successful (retry_interval only
+    applies when updates fail)
     """
 
     def __init__(
         self,
         dirty: bool = False,
         retry_interval: float = 5.0,
+        *,
         use_lock: bool = False,
         auto_dirty_seconds: float | None = None,
         min_update_interval: float | None = None,
@@ -284,7 +336,7 @@ class DispatchMethodWrapper(Generic[ArgT, RetT]):
 
     @staticmethod
     def register(
-        func: Callable[[Any, Any], RetT]
+        func: Callable[[Any, Any], RetT],
     ) -> Callable[[Any, Any], RetT]:
         """Register a new dispatch handler for this dispatch-method."""
         raise RuntimeError('Should not get here')
@@ -294,7 +346,7 @@ class DispatchMethodWrapper(Generic[ArgT, RetT]):
 
 # noinspection PyProtectedMember,PyTypeHints
 def dispatchmethod(
-    func: Callable[[Any, ArgT], RetT]
+    func: Callable[[Any, ArgT], RetT],
 ) -> DispatchMethodWrapper[ArgT, RetT]:
     """A variation of functools.singledispatch for methods.
 
@@ -378,7 +430,7 @@ class ValueDispatcher(Generic[ValT, RetT]):
 
 
 def valuedispatch1arg(
-    call: Callable[[ValT, ArgT], RetT]
+    call: Callable[[ValT, ArgT], RetT],
 ) -> ValueDispatcher1Arg[ValT, ArgT, RetT]:
     """Like valuedispatch but for functions taking an extra argument."""
     return ValueDispatcher1Arg(call)
@@ -429,7 +481,7 @@ if TYPE_CHECKING:
 
 
 def valuedispatchmethod(
-    call: Callable[[SelfT, ValT], RetT]
+    call: Callable[[SelfT, ValT], RetT],
 ) -> ValueDispatcherMethod[ValT, RetT]:
     """Like valuedispatch but works with methods instead of functions."""
 
@@ -930,3 +982,30 @@ def extract_arg(
     del args[argindex : argindex + 2]
 
     return val
+
+
+def pairs_to_flat(pairs: Sequence[tuple[T, T]]) -> list[T]:
+    """Given a sequence of same-typed pairs, flattens to a list."""
+    return [item for pair in pairs for item in pair]
+
+
+def pairs_from_flat(flat: Sequence[T]) -> list[tuple[T, T]]:
+    """Given a flat even numbered sequence, returns pairs."""
+    if len(flat) % 2 != 0:
+        raise ValueError('Provided sequence has an odd number of elements.')
+    out: list[tuple[T, T]] = []
+    for i in range(0, len(flat) - 1, 2):
+        out.append((flat[i], flat[i + 1]))
+    return out
+
+
+def weighted_choice(*args: tuple[T, float]) -> T:
+    """Given object/weight pairs as args, returns a random object.
+
+    Intended as a shorthand way to call random.choices on a few explicit
+    options.
+    """
+    items: tuple[T]
+    weights: tuple[float]
+    items, weights = zip(*args)
+    return random.choices(items, weights=weights)[0]

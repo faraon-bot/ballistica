@@ -2,9 +2,15 @@
 
 #include "ballistica/base/graphics/graphics_server.h"
 
+#include <list>
+#include <vector>
+
 #include "ballistica/base/app_adapter/app_adapter.h"
+#include "ballistica/base/assets/assets.h"
+#include "ballistica/base/graphics/graphics.h"
 #include "ballistica/base/graphics/renderer/renderer.h"
 #include "ballistica/base/logic/logic.h"
+#include "ballistica/core/platform/core_platform.h"
 #include "ballistica/shared/foundation/event_loop.h"
 
 namespace ballistica::base {
@@ -141,7 +147,7 @@ auto GraphicsServer::TryRender() -> bool {
 
 auto GraphicsServer::WaitForRenderFrameDef_() -> FrameDef* {
   assert(g_base->app_adapter->InGraphicsContext());
-  millisecs_t start_time = g_core->GetAppTimeMillisecs();
+  millisecs_t start_time = g_core->AppTimeMillisecs();
 
   // Spin and wait for a short bit for a frame_def to appear.
   while (true) {
@@ -170,12 +176,12 @@ auto GraphicsServer::WaitForRenderFrameDef_() -> FrameDef* {
     }
 
     // If there's no frame_def for us, sleep for a bit and wait for it.
-    millisecs_t t = g_core->GetAppTimeMillisecs() - start_time;
+    millisecs_t t = g_core->AppTimeMillisecs() - start_time;
     if (t >= 1000) {
       if (g_buildconfig.debug_build()) {
-        Log(LogLevel::kWarning,
-            "GraphicsServer: timed out at " + std::to_string(t)
-                + "ms waiting for logic thread to send us a FrameDef.");
+        g_core->Log(LogName::kBaGraphics, LogLevel::kWarning,
+                    "GraphicsServer: timed out at " + std::to_string(t)
+                        + "ms waiting for logic thread to send us a FrameDef.");
       }
       break;  // Fail.
     }
@@ -261,7 +267,8 @@ void GraphicsServer::ReloadLostRenderer() {
   assert(g_base->app_adapter->InGraphicsContext());
 
   if (!renderer_) {
-    Log(LogLevel::kError, "No renderer on GraphicsServer::ReloadLostRenderer.");
+    g_core->Log(LogName::kBaGraphics, LogLevel::kError,
+                "No renderer on GraphicsServer::ReloadLostRenderer.");
     return;
   }
 
@@ -318,11 +325,13 @@ void GraphicsServer::set_renderer(Renderer* renderer) {
 void GraphicsServer::LoadRenderer() {
   assert(g_base->app_adapter->InGraphicsContext());
   if (!renderer_) {
-    Log(LogLevel::kError, "LoadRenderer() called with no renderer present.");
+    g_core->Log(LogName::kBaGraphics, LogLevel::kError,
+                "LoadRenderer() called with no renderer present.");
     return;
   }
   if (renderer_loaded_) {
-    Log(LogLevel::kError,
+    g_core->Log(
+        LogName::kBaGraphics, LogLevel::kError,
         "LoadRenderer() called with an already-loaded renderer present.");
     return;
   }
@@ -364,11 +373,13 @@ void GraphicsServer::LoadRenderer() {
 void GraphicsServer::UnloadRenderer() {
   assert(g_base->app_adapter->InGraphicsContext());
   if (!renderer_) {
-    Log(LogLevel::kError, "UnloadRenderer() called with no renderer present.");
+    g_core->Log(LogName::kBaGraphics, LogLevel::kError,
+                "UnloadRenderer() called with no renderer present.");
     return;
   }
   if (!renderer_loaded_) {
-    Log(LogLevel::kError,
+    g_core->Log(
+        LogName::kBaGraphics, LogLevel::kError,
         "UnloadRenderer() called with an already unloaded renderer present.");
     return;
   }
@@ -527,7 +538,7 @@ void GraphicsServer::PushRemoveRenderHoldCall() {
     assert(render_hold_);
     render_hold_--;
     if (render_hold_ < 0) {
-      Log(LogLevel::kError, "RenderHold < 0");
+      g_core->Log(LogName::kBaGraphics, LogLevel::kError, "RenderHold < 0");
       render_hold_ = 0;
     }
   });

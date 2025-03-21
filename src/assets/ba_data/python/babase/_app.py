@@ -9,8 +9,9 @@ import logging
 from enum import Enum
 from functools import partial
 from typing import TYPE_CHECKING, TypeVar, override
-from concurrent.futures import ThreadPoolExecutor
 from threading import RLock
+
+from efro.threadpool import ThreadPoolExecutorPlus
 
 import _babase
 from babase._language import LanguageSubsystem
@@ -23,6 +24,8 @@ from babase._appmodeselector import AppModeSelector
 from babase._appintent import AppIntentDefault, AppIntentExec
 from babase._stringedit import StringEditSubsystem
 from babase._devconsole import DevConsoleSubsystem
+from babase._appconfig import AppConfig
+from babase._logging import lifecyclelog, applog
 
 if TYPE_CHECKING:
     import asyncio
@@ -50,71 +53,58 @@ class App:
 
     Category: **App Classes**
 
-    Use babase.app to access the single shared instance of this class.
-
-    Note that properties not documented here should be considered internal
-    and subject to change without warning.
+    Use :attr:`bauiv1.app` to access the single shared instance of this
+    class.
     """
 
     # pylint: disable=too-many-public-methods
 
-    # A few things defined as non-optional values but not actually
-    # available until the app starts.
-    plugins: PluginSubsystem
-    lang: LanguageSubsystem
-    health_monitor: AppHealthMonitor
-
-    # How long we allow shutdown tasks to run before killing them.
-    # Currently the entire app hard-exits if shutdown takes 10 seconds,
-    # so we need to keep it under that.
-    SHUTDOWN_TASK_TIMEOUT_SECONDS = 5
-
     class State(Enum):
         """High level state the app can be in."""
 
-        # The app has not yet begun starting and should not be used in
-        # any way.
+        #: The app has not yet begun starting and should not be used in
+        #: any way.
         NOT_STARTED = 0
 
-        # The native layer is spinning up its machinery (screens,
-        # renderers, etc.). Nothing should happen in the Python layer
-        # until this completes.
+        #: The native layer is spinning up its machinery (screens,
+        #: renderers, etc.). Nothing should happen in the Python layer
+        #: until this completes.
         NATIVE_BOOTSTRAPPING = 1
 
-        # Python app subsystems are being inited but should not yet
-        # interact or do any work.
+        #: Python app subsystems are being inited but should not yet
+        #: interact or do any work.
         INITING = 2
 
-        # Python app subsystems are inited and interacting, but the app
-        # has not yet embarked on a high level course of action. It is
-        # doing initial account logins, workspace & asset downloads,
-        # etc.
+        #: Python app subsystems are inited and interacting, but the app
+        #: has not yet embarked on a high level course of action. It is
+        #: doing initial account logins, workspace & asset downloads,
+        #: etc.
         LOADING = 3
 
-        # All pieces are in place and the app is now doing its thing.
+        #: All pieces are in place and the app is now doing its thing.
         RUNNING = 4
 
-        # Used on platforms such as mobile where the app basically needs
-        # to shut down while backgrounded. In this state, all event
-        # loops are suspended and all graphics and audio must cease
-        # completely. Be aware that the suspended state can be entered
-        # from any other state including NATIVE_BOOTSTRAPPING and
-        # SHUTTING_DOWN.
+        #: Used on platforms such as mobile where the app basically needs
+        #: to shut down while backgrounded. In this state, all event
+        #: loops are suspended and all graphics and audio must cease
+        #: completely. Be aware that the suspended state can be entered
+        #: from any other state including NATIVE_BOOTSTRAPPING and
+        #: SHUTTING_DOWN.
         SUSPENDED = 5
 
-        # The app is shutting down. This process may involve sending
-        # network messages or other things that can take up to a few
-        # seconds, so ideally graphics and audio should remain
-        # functional (with fades or spinners or whatever to show
-        # something is happening).
+        #: The app is shutting down. This process may involve sending
+        #: network messages or other things that can take up to a few
+        #: seconds, so ideally graphics and audio should remain
+        #: functional (with fades or spinners or whatever to show
+        #: something is happening).
         SHUTTING_DOWN = 6
 
-        # The app has completed shutdown. Any code running here should
-        # be basically immediate.
+        #: The app has completed shutdown. Any code running here should
+        #: be basically immediate.
         SHUTDOWN_COMPLETE = 7
 
     class DefaultAppModeSelector(AppModeSelector):
-        """Decides which AppModes to use to handle AppIntents.
+        """Decides which AppMode to use to handle AppIntents.
 
         This default version is generated by the project updater based
         on the 'default_app_modes' value in the projectconfig.
@@ -151,23 +141,31 @@ class App:
 
             # __DEFAULT_APP_MODE_SELECTION_END__
 
-        @override
-        def testable_app_modes(self) -> list[type[AppMode]]:
-            # pylint: disable=cyclic-import
+    # A few things defined as non-optional values but not actually
+    # available until the app starts.
+    plugins: PluginSubsystem
+    lang: LanguageSubsystem
+    health_monitor: AppHealthMonitor
 
-            # __DEFAULT_TESTABLE_APP_MODES_BEGIN__
-            # This section generated by batools.appmodule; do not edit.
+    # Define some other types here in the class-def so docs-generators
+    # are more likely to know about them.
+    config: AppConfig
+    env: babase.Env
+    state: State
+    threadpool: ThreadPoolExecutorPlus
+    meta: MetadataSubsystem
+    net: NetworkSubsystem
+    workspaces: WorkspaceSubsystem
+    components: AppComponentSubsystem
+    stringedit: StringEditSubsystem
+    devconsole: DevConsoleSubsystem
+    fg_state: int
 
-            # Return all our default_app_modes as testable.
-            # (generated from 'default_app_modes' in projectconfig).
-            import baclassic
-            import babase
-
-            return [
-                baclassic.ClassicAppMode,
-                babase.EmptyAppMode,
-            ]
-            # __DEFAULT_TESTABLE_APP_MODES_END__
+    #: How long we allow shutdown tasks to run before killing them.
+    #: Currently the entire app hard-exits if shutdown takes 15 seconds,
+    #: so we need to keep it under that. Staying above 10 should allow
+    #: 10 second network timeouts to happen though.
+    SHUTDOWN_TASK_TIMEOUT_SECONDS = 12
 
     def __init__(self) -> None:
         """(internal)
@@ -182,18 +180,22 @@ class App:
         if os.environ.get('BA_RUNNING_WITH_DUMMY_MODULES') == '1':
             return
 
-        self.env: babase.Env = _babase.Env()
+        # Wrap our raw app config in our special wrapper and pass it to
+        # the native layer.
+        self.config = AppConfig(_babase.get_initial_app_config())
+        _babase.set_app_config(self.config)
+
+        self.env = _babase.Env()
         self.state = self.State.NOT_STARTED
 
         # Default executor which can be used for misc background
         # processing. It should also be passed to any additional asyncio
         # loops we create so that everything shares the same single set
         # of worker threads.
-        self.threadpool = ThreadPoolExecutor(
+        self.threadpool = ThreadPoolExecutorPlus(
             thread_name_prefix='baworker',
             initializer=self._thread_pool_thread_init,
         )
-
         self.meta = MetadataSubsystem()
         self.net = NetworkSubsystem()
         self.workspaces = WorkspaceSubsystem()
@@ -223,7 +225,6 @@ class App:
         self._asyncio_loop: asyncio.AbstractEventLoop | None = None
         self._asyncio_tasks: set[asyncio.Task] = set()
         self._asyncio_timer: babase.AppTimer | None = None
-        self._config: babase.AppConfig | None = None
         self._pending_intent: AppIntent | None = None
         self._intent: AppIntent | None = None
         self._mode_selector: babase.AppModeSelector | None = None
@@ -268,6 +269,12 @@ class App:
         are covering it, etc. (depending on the platform).
         """
         return _babase.app_is_active()
+
+    @property
+    def mode(self) -> AppMode | None:
+        """The app's current mode."""
+        assert _babase.in_logic_thread()
+        return self._mode
 
     @property
     def asyncio_loop(self) -> asyncio.AbstractEventLoop:
@@ -329,12 +336,6 @@ class App:
             logging.exception('Error reporting async task error.')
 
         self._asyncio_tasks.remove(task)
-
-    @property
-    def config(self) -> babase.AppConfig:
-        """The babase.AppConfig instance representing the app's config state."""
-        assert self._config is not None
-        return self._config
 
     @property
     def mode_selector(self) -> babase.AppModeSelector:
@@ -480,7 +481,7 @@ class App:
         """Add a task to be run on app shutdown.
 
         Note that shutdown tasks will be canceled after
-        App.SHUTDOWN_TASK_TIMEOUT_SECONDS if they are still running.
+        :py:const:`SHUTDOWN_TASK_TIMEOUT_SECONDS` if they are still running.
         """
         if (
             self.state is self.State.SHUTTING_DOWN
@@ -500,18 +501,6 @@ class App:
         """
         _babase.run_app()
 
-    def threadpool_submit_no_wait(self, call: Callable[[], Any]) -> None:
-        """Submit a call to the app threadpool where result is not needed.
-
-        Normally, doing work in a thread-pool involves creating a future
-        and waiting for its result, which is an important step because it
-        propagates any Exceptions raised by the submitted work. When the
-        result in not important, however, this call can be used. The app
-        will log any exceptions that occur.
-        """
-        fut = self.threadpool.submit(call)
-        fut.add_done_callback(self._threadpool_no_wait_done)
-
     def set_intent(self, intent: AppIntent) -> None:
         """Set the intent for the app.
 
@@ -529,7 +518,7 @@ class App:
 
         # Do the actual work of calcing our app-mode/etc. in a bg thread
         # since it may block for a moment to load modules/etc.
-        self.threadpool_submit_no_wait(partial(self._set_intent, intent))
+        self.threadpool.submit_no_wait(self._set_intent, intent)
 
     def push_apply_app_config(self) -> None:
         """Internal. Use app.config.apply() to apply app config changes."""
@@ -585,12 +574,6 @@ class App:
         if self._mode is not None:
             self._mode.on_app_active_changed()
 
-    def read_config(self) -> None:
-        """(internal)"""
-        from babase._appconfig import read_app_config
-
-        self._config = read_app_config()
-
     def handle_deep_link(self, url: str) -> None:
         """Handle a deep link URL."""
         from babase._language import Lstr
@@ -632,8 +615,8 @@ class App:
     def set_ui_scale(self, scale: babase.UIScale) -> None:
         """Change ui-scale on the fly.
 
-        Currently this is mainly for debugging and will not
-        be called as part of normal app operation.
+        Currently this is mainly for debugging and will not be called as
+        part of normal app operation.
         """
         assert _babase.in_logic_thread()
 
@@ -646,10 +629,25 @@ class App:
         assert self._subsystem_registration_ended
         for subsystem in self._subsystems:
             try:
-                subsystem.on_screen_change()
+                subsystem.on_ui_scale_change()
             except Exception:
                 logging.exception(
-                    'Error in on_screen_change() for subsystem %s.', subsystem
+                    'Error in on_ui_scale_change() for subsystem %s.', subsystem
+                )
+
+    def on_screen_size_change(self) -> None:
+        """Screen size has changed."""
+
+        # Inform all app subsystems in the same order they were inited.
+        # Operate on a copy of the list here because this can be called
+        # while subsystems are still being added.
+        for subsystem in self._subsystems.copy():
+            try:
+                subsystem.on_screen_size_change()
+            except Exception:
+                logging.exception(
+                    'Error in on_screen_size_change() for subsystem %s.',
+                    subsystem,
                 )
 
     def _set_intent(self, intent: AppIntent) -> None:
@@ -896,7 +894,7 @@ class App:
     def _apply_app_config(self) -> None:
         assert _babase.in_logic_thread()
 
-        _babase.lifecyclelog('apply-app-config')
+        lifecyclelog.info('apply-app-config')
 
         # If multiple apply calls have been made, only actually apply
         # once.
@@ -928,7 +926,7 @@ class App:
         if self._native_shutdown_complete_called:
             if self.state is not self.State.SHUTDOWN_COMPLETE:
                 self.state = self.State.SHUTDOWN_COMPLETE
-                _babase.lifecyclelog('app state shutdown complete')
+                lifecyclelog.info('app-state is now %s', self.state.name)
                 self._on_shutdown_complete()
 
         # Shutdown trumps all. Though we can't start shutting down until
@@ -938,7 +936,8 @@ class App:
             # Entering shutdown state:
             if self.state is not self.State.SHUTTING_DOWN:
                 self.state = self.State.SHUTTING_DOWN
-                _babase.lifecyclelog('app state shutting down')
+                applog.info('Shutting down...')
+                lifecyclelog.info('app-state is now %s', self.state.name)
                 self._on_shutting_down()
 
         elif self._native_suspended:
@@ -955,15 +954,16 @@ class App:
             if self._initial_sign_in_completed and self._meta_scan_completed:
                 if self.state != self.State.RUNNING:
                     self.state = self.State.RUNNING
-                    _babase.lifecyclelog('app state running')
+                    lifecyclelog.info('app-state is now %s', self.state.name)
                     if not self._called_on_running:
                         self._called_on_running = True
                         self._on_running()
+
             # Entering or returning to loading state:
             elif self._init_completed:
                 if self.state is not self.State.LOADING:
                     self.state = self.State.LOADING
-                    _babase.lifecyclelog('app state loading')
+                    lifecyclelog.info('app-state is now %s', self.state.name)
                     if not self._called_on_loading:
                         self._called_on_loading = True
                         self._on_loading()
@@ -972,7 +972,7 @@ class App:
             elif self._native_bootstrapping_completed:
                 if self.state is not self.State.INITING:
                     self.state = self.State.INITING
-                    _babase.lifecyclelog('app state initing')
+                    lifecyclelog.info('app-state is now %s', self.state.name)
                     if not self._called_on_initing:
                         self._called_on_initing = True
                         self._on_initing()
@@ -981,7 +981,7 @@ class App:
             elif self._native_start_called:
                 if self.state is not self.State.NATIVE_BOOTSTRAPPING:
                     self.state = self.State.NATIVE_BOOTSTRAPPING
-                    _babase.lifecyclelog('app state native bootstrapping')
+                    lifecyclelog.info('app-state is now %s', self.state.name)
             else:
                 # Only logical possibility left is NOT_STARTED, in which
                 # case we should not be getting called.
@@ -1076,6 +1076,19 @@ class App:
         """(internal)"""
         assert _babase.in_logic_thread()
 
+        # Deactivate any active app-mode. This allows things like saving
+        # state to happen naturally without needing to handle
+        # app-shutdown as a special case.
+        if self._mode is not None:
+            try:
+                self._mode.on_deactivate()
+            except Exception:
+                logging.exception(
+                    'Error deactivating app-mode %s at app shutdown.',
+                    self._mode,
+                )
+            self._mode = None
+
         # Inform app subsystems that we're done shutting down in the opposite
         # order they were inited.
         for subsystem in reversed(self._subsystems):
@@ -1092,10 +1105,10 @@ class App:
 
         # Spin and wait for anything blocking shutdown to complete.
         starttime = _babase.apptime()
-        _babase.lifecyclelog('shutdown-suppress wait begin')
+        lifecyclelog.info('shutdown-suppress-wait begin')
         while _babase.shutdown_suppress_count() > 0:
             await asyncio.sleep(0.001)
-        _babase.lifecyclelog('shutdown-suppress wait end')
+        lifecyclelog.info('shutdown-suppress-wait end')
         duration = _babase.apptime() - starttime
         if duration > 1.0:
             logging.warning(
@@ -1108,7 +1121,7 @@ class App:
         import asyncio
 
         # Kick off a short fade and give it time to complete.
-        _babase.lifecyclelog('fade-and-shutdown-graphics begin')
+        lifecyclelog.info('fade-and-shutdown-graphics begin')
         _babase.fade_screen(False, time=0.15)
         await asyncio.sleep(0.15)
 
@@ -1117,27 +1130,19 @@ class App:
         _babase.graphics_shutdown_begin()
         while not _babase.graphics_shutdown_is_complete():
             await asyncio.sleep(0.01)
-        _babase.lifecyclelog('fade-and-shutdown-graphics end')
+        lifecyclelog.info('fade-and-shutdown-graphics end')
 
     async def _fade_and_shutdown_audio(self) -> None:
         import asyncio
 
         # Tell the audio system to go down and give it a bit of
         # time to do so gracefully.
-        _babase.lifecyclelog('fade-and-shutdown-audio begin')
+        lifecyclelog.info('fade-and-shutdown-audio begin')
         _babase.audio_shutdown_begin()
         await asyncio.sleep(0.15)
         while not _babase.audio_shutdown_is_complete():
             await asyncio.sleep(0.01)
-        _babase.lifecyclelog('fade-and-shutdown-audio end')
-
-    def _threadpool_no_wait_done(self, fut: Future) -> None:
-        try:
-            fut.result()
-        except Exception:
-            logging.exception(
-                'Error in work submitted via threadpool_submit_no_wait()'
-            )
+        lifecyclelog.info('fade-and-shutdown-audio end')
 
     def _thread_pool_thread_init(self) -> None:
         # Help keep things clear in profiling tools/etc.

@@ -7,7 +7,6 @@ from __future__ import annotations
 import time
 import random
 import weakref
-import functools
 from typing import TYPE_CHECKING, override
 
 import bascenev1 as bs
@@ -15,6 +14,8 @@ import bauiv1 as bui
 
 if TYPE_CHECKING:
     from typing import Any
+
+    import bacommon.bs
 
 
 class MainMenuActivity(bs.Activity[bs.Player, bs.Team]):
@@ -58,8 +59,8 @@ class MainMenuActivity(bs.Activity[bs.Player, bs.Team]):
         plus = bs.app.plus
         assert plus is not None
 
-        # Throw up some text that only clients can see so they know that the
-        # host is navigating menus while they're just staring at an
+        # Throw up some text that only clients can see so they know that
+        # the host is navigating menus while they're just staring at an
         # empty-ish screen.
         tval = bs.Lstr(
             resource='hostIsNavigatingMenusText',
@@ -87,7 +88,7 @@ class MainMenuActivity(bs.Activity[bs.Player, bs.Team]):
         # Throw in test build info.
         self.beta_info = self.beta_info_2 = None
         if env.test:
-            pos = (230, -5)
+            pos = (230, 35)
             self.beta_info = bs.NodeActor(
                 bs.newnode(
                     'text',
@@ -248,10 +249,10 @@ class MainMenuActivity(bs.Activity[bs.Player, bs.Team]):
         lang = app.lang.language
         if lang != self._language:
             self._language = lang
-            y = -15
+            y = 20
             base_scale = 1.1
             self._word_actors = []
-            base_delay = 1.0
+            base_delay = 0.8
             delay = base_delay
             delay_inc = 0.02
 
@@ -342,7 +343,7 @@ class MainMenuActivity(bs.Activity[bs.Player, bs.Team]):
                     self._make_word(
                         'B',
                         x - 50,
-                        y - 14 + 0.8 * y_extra,
+                        y - 23 + 0.8 * y_extra,
                         scale=1.3 * base_scale,
                         delay=delay,
                         vr_depth_offset=3,
@@ -374,7 +375,7 @@ class MainMenuActivity(bs.Activity[bs.Player, bs.Team]):
                     self._make_word(
                         'S',
                         x,
-                        y - 15 + 0.8 * y_extra,
+                        y - 25 + 0.8 * y_extra,
                         scale=1.35 * base_scale,
                         delay=delay,
                         vr_depth_offset=14,
@@ -434,6 +435,7 @@ class MainMenuActivity(bs.Activity[bs.Player, bs.Team]):
         word: str,
         x: float,
         y: float,
+        *,
         scale: float = 1.0,
         delay: float = 0.0,
         vr_depth_offset: float = 0.0,
@@ -562,13 +564,13 @@ class MainMenuActivity(bs.Activity[bs.Player, bs.Team]):
         y: float,
         scale: float,
         delay: float,
+        *,
         custom_texture: str | None = None,
         jitter_scale: float = 1.0,
         rotate: float = 0.0,
         vr_depth_offset: float = 0.0,
     ) -> None:
         # pylint: disable=too-many-locals
-        # Temp easter goodness.
         if custom_texture is None:
             custom_texture = self._get_custom_logo_tex_name()
         self._custom_logo_tex_name = custom_texture
@@ -581,31 +583,25 @@ class MainMenuActivity(bs.Activity[bs.Player, bs.Team]):
             if custom_texture is not None
             else bs.getmesh('logoTransparent')
         )
-        logo = bs.NodeActor(
-            bs.newnode(
-                'image',
-                attrs={
-                    'position': (x, y),
-                    'texture': ltex,
-                    'mesh_opaque': mopaque,
-                    'mesh_transparent': mtrans,
-                    'vr_depth': -10 + vr_depth_offset,
-                    'rotate': rotate,
-                    'attach': 'center',
-                    'tilt_translate': 0.21,
-                    'absolute_scale': True,
-                    'scale': (
-                        (2000.0, 2000.0) if custom_texture is None else None
-                    ),
-                },
-            )
-        )
+        logo_attrs = {
+            'position': (x, y),
+            'texture': ltex,
+            'mesh_opaque': mopaque,
+            'mesh_transparent': mtrans,
+            'vr_depth': -10 + vr_depth_offset,
+            'rotate': rotate,
+            'attach': 'center',
+            'tilt_translate': 0.21,
+            'absolute_scale': True,
+        }
+        if custom_texture is None:
+            logo_attrs['scale'] = (2000.0, 2000.0)
+        logo = bs.NodeActor(bs.newnode('image', attrs=logo_attrs))
         self._logo_node = logo.node
         self._word_actors.append(logo)
 
-        # Add a bit of stop-motion-y jitter to the logo
-        # (unless we're in VR mode in which case its best to
-        # leave things still).
+        # Add a bit of stop-motion-y jitter to the logo (unless we're in
+        # VR mode in which case its best to leave things still).
         assert logo.node
 
         def jitter() -> None:
@@ -631,21 +627,37 @@ class MainMenuActivity(bs.Activity[bs.Player, bs.Team]):
                     time_v += random.random() * 0.1
                 bs.animate(cmb, 'input1', keys, loop=True)
 
-        if custom_texture is None:
+        # Do a fun spinny animation on the logo the first time in.
+        if (
+            custom_texture is None
+            and bs.app.classic is not None
+            and not bs.app.classic.main_menu_did_initial_transition
+        ):
+            jitter()
+            cmb = bs.newnode('combine', owner=logo.node, attrs={'size': 2})
 
-            def rotate_logo() -> None:
-                logo_scale = logo.node.scale
-                assert not isinstance(logo_scale, float)
-                logo.node.rotate = logo.node.rotate + 4
-                logo.node.scale = (logo_scale[0] - 20, logo_scale[1] - 20)
-                if logo.node.rotate >= 356:
-                    self._logo_rotate_timer = None
-                    jitter()
+            delay = 0.0
+            keys = {
+                delay: 5000.0 * scale,
+                delay + 0.4: 530.0 * scale,
+                delay + 0.45: 620.0 * scale,
+                delay + 0.5: 590.0 * scale,
+                delay + 0.55: 605.0 * scale,
+                delay + 0.6: 600.0 * scale,
+            }
+            bs.animate(cmb, 'input0', keys)
+            bs.animate(cmb, 'input1', keys)
+            cmb.connectattr('output', logo.node, 'scale')
 
-            self._logo_rotate_timer = bs.Timer(
-                0.001, functools.partial(rotate_logo), repeat=True
-            )
+            keys = {
+                delay: 100.0,
+                delay + 0.4: 370.0,
+                delay + 0.45: 357.0,
+                delay + 0.5: 360.0,
+            }
+            bs.animate(logo.node, 'rotate', keys)
         else:
+            # For all other cases do a simple scale up animation.
             jitter()
             cmb = bs.newnode('combine', owner=logo.node, attrs={'size': 2})
 

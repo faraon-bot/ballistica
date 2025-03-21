@@ -2,8 +2,12 @@
 
 #include "ballistica/base/python/class/python_class_env.h"
 
+#include <map>
+#include <string>
+
 #include "ballistica/base/base.h"
 #include "ballistica/core/platform/core_platform.h"
+
 namespace ballistica::base {
 
 struct EnvEntry_ {
@@ -214,8 +218,8 @@ void PythonClassEnv::tp_dealloc(PythonClassEnv* self) {
   Py_TYPE(self)->tp_free(reinterpret_cast<PyObject*>(self));
 }
 
-auto PythonClassEnv::tp_getattro(PythonClassEnv* self,
-                                 PyObject* attr) -> PyObject* {
+auto PythonClassEnv::tp_getattro(PythonClassEnv* self, PyObject* attr)
+    -> PyObject* {
   BA_PYTHON_TRY;
 
   // Do we need to support other attr types?
@@ -248,7 +252,7 @@ auto PythonClassEnv::Dir(PythonClassEnv* self) -> PyObject* {
   for (auto&& env : *g_entries_) {
     PyList_Append(dir_list, PythonRef(PyUnicode_FromString(env.first.c_str()),
                                       PythonRef::kSteal)
-                                .Get());
+                                .get());
   }
   PyList_Sort(dir_list);
   return dir_list;

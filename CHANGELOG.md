@@ -1,14 +1,60 @@
-### 1.7.37 (build 22004, api 9, 2024-09-05)
+### 1.7.39 (build 22320, api 9, 2025-03-20)
+- Tidied up the sphinx documentation generation a bit. Docs are now generated
+  for both runtime and tools packages.
+  
+### 1.7.38 (build 22318, api 9, 2025-03-20)
+- Added animations for reducing chest wait times or gaining tickets or tokens
+- Made MainWindow auto-recreate smarter. If something such as text input or a
+  popup window is suppressing main-window-auto-recreate, it'll now do a single
+  recreate once the suppression ends.
+- (build 22313) Fixed a possible client crash due to uninitialized memory when
+  handling `BA_MESSAGE_HOST_INFO` data.
+  
+### 1.7.37 (build 22304, api 9, 2025-03-10)
 - Bumping api version to 9. As you'll see below, there's some UI changes that
   will require a bit of work for any UI mods to adapt to. If your mods don't
   touch UI stuff at all you can simply bump your api version and call it a day.
-  I'm hopeful that api version won't need to be bumped again for along time (if
+  I'm hopeful that api version won't need to be bumped again for a long time (if
   ever).
+- I am pleased to announce that after years of hard work from many members of
+  the community, PirateSpeak is now complete and available as a language choice.
+  This changes everything.
+- Heavily reworked and cleaned up the logging system. There is now a 'ba' Python
+  logger and various logger categories under it such as 'ba.lifecycle',
+  'ba.connectivity' or 'ba.v2transport'. By setting these individual loggers to
+  different levels such as 'debug', one can easily observe and debug specific
+  parts of app behavior. Over time I will better organize the logger hierarchy
+  and wire up more functionality to be logged this way.
+- Added a 'Logging' tab to the dev-console. This allows easily setting log
+  levels for all existing Python loggers, as well as resetting them all to
+  defaults. Levels set here are restored on startup, so it is possible to debug
+  app startup behavior by setting log levels and then relaunching the app.
+  Previously this sort of thing would generally require setting cryptic
+  environment variables which was not feasable on all platforms, but this new
+  system should work everywhere.
+- Log messages printed to both the command line and the in-app console now
+  include timestamps and logger names, and are color coded for severity
+  (DEBUG=blue, INFO=default, WARNING=orange/yellow, ERROR=red, CRITICAL=purple).
+- `efro.log` is now `efro.logging` which better lines up with other logging
+  module names. It was originally named `log` to work around a mypy bug.
+- Went ahead and fully removed `efro.call.tpartial` (since we're breaking
+  compatibility anyway by bumping api version). If you are using
+  `efro.call.tpartial` anywhere, simply replace it with `functools.partial`.
+- The newest Pylint update (3.3) added a check for
+  'too-many-positional-arguments'. This seems like a good idea, so I updated
+  various functions to conform to it and set some others to ignore it. Basically
+  if you see a function like `def dothing(a, b, *, c, d)` then everything after
+  the `*` needs to be passed as a keyword. So you can't do `dothing(val1, val2,
+  val3, val4)`; you need to do `dothing(val1, val2, c=val3, d=val4)`. Requiring
+  keywords for complex functions generally leads to more readable code and less
+  breakage if arguments are added or removed from the function.
 - Playlist customization no longer requires pro.
 - Soundtrack customization no longer requires pro.
 - Campaign hard mode no longer requires pro.
 - Full player profile color customization no longer requires pro.
 - Removed nag screens for purchasing pro or bundle offers.
+- Removed continue logic. Continues have been disabled server-side for a while
+  but now removing the client code to clean things up a bit.
 - Switching over to the new 'toolbar mode' UI that has been in the works for
   several years. This includes a number of handy things such as consistent
   buttons and widgets for league status, currencies, inventory, and the store.
@@ -37,15 +83,15 @@
   UI states easier, but I now plan to use `WindowState` classes to accomplish
   much of that in a more backward-compatible way. More on that below.
 - Removed touch-specific button target-area adjustements. If you find any
-  buttons that are hard to hit accurately on a touchscreen, please holler.
+  buttons that are now hard to hit accurately on a touchscreen, please holler.
 - Added a new `bauiv1.Window` subclass called `bauiv1.MainWindow` which handles
   what was previously called the 'main-menu-window' system which was a bit
   ad-hoc and messy. MainMenuWindows have a built-in stack system so things like
   back-button handling are more automatic and windows don't have to hard-code
-  where they came from. There are also other benefits such as better state
-  saving/restoring. When writing a MainWindow, pretty much all navigation should
-  only need too use methods: `main_window_has_control()`, `main_window_back()`,
-  and `main_window_replace()`.
+  where their back button goes to. There are also other benefits such as better
+  state saving/restoring. When writing a MainWindow, pretty much all navigation
+  should only need to use methods: `main_window_has_control()`,
+  `main_window_back()`, and `main_window_replace()`.
 - Finally got things updated so language testing works again, and made it a bit
   spiffier while at it. You now simply point the game at your test language and
   it will update dynamically as you make edits; no need to download any files.
@@ -87,9 +133,117 @@
   use `babase.get_ui_scale()` to get it now.
 - Removed the UIScale control from the devtools window, which was only partially
   wired up (it did not affect native layer bits). For now the official ways to
-  test UIScales are by using the UI panel in the dev-console or by setting the
+  test UIScales are by using the UI tab in the dev-console or by setting the
   `BA_UI_SCALE` env var. If we can get UIScale switches to feel seamless enough
   at some point, it may be worth adding to display settings.
+- There is now a `ba*.app.classic.save_ui_state()` method that should be called
+  right before jumping into a game/replay/etc. This will save a state that will
+  automatically be restored the next time the main menu activity is entered.
+- (build 22010) Added the concept of 'auxiliary' windows and used them to make
+  various window navigation more intuitive. Example: previously, if you were on
+  the co-op screen and pressed the trophy toolbar icon to see your league rank
+  and then pressed back, you would be taken back to the top level main menu. Now
+  it will take you back to the co-op screen.
+- (build 22018) Hardened SDL joystick handling code so the app won't crash if
+  SDL_JoystickOpen() returns nullptr for whatever reason.
+- (build 22028) Fixed a longstanding issue that could cause logic thread
+  bg-dynamics message overflows.
+- Added a close button to the dev-console as an alternate to using key presses
+  to close it.
+- (build 22063) Added a 'Copy History' button in the Python tab in the
+  dev-console. Note that this will copy all cached log history; not just what is
+  displayed in the dev-console. This should be handy for diagnosing problems in
+  the future.
+- (build 22072) Added a 'Use insecure connections' option in settings ->
+  advanced. This may make it possible to play from places such as Iran where ssl
+  connections are being blocked. Do not enable this if you don't need to.
+- (build 22085) Added protection against an attack consisting of spamming
+  invalid game-query packets.
+- Using prefab builds on a Mac now requires an Apple Silicon machine (M1 or
+  newer). Mac x86 prefab builds were becoming a major bottleneck in pushing out
+  updates. Please let me know if you are making substantial use of prefab builds
+  on an x86 Mac and I can reconsider. Note that this only concerns the prefab
+  build system; regular official game builds still fully support x86 Macs.
+- Added the `test-fast` Makefile target which skips some slower tests, and wired
+  up `make preflight` to use this to keep things moving a bit faster. If you are
+  not familiar with it, the `preflight` target is handy to run before committing
+  code to git.
+- The app-modes tab in the dev-console now uses the meta tag system to discover
+  testable app-modes. Previously this would simply list the `default_app_modes`
+  listed in the projectconfig.json. So now it is possible to make and explicitly
+  test new app modes via mod scripts on vanilla game builds. Note that the game
+  still uses the `default_app_modes` projectconfig.json value when selecting
+  app-modes at runtime; to change this you need to either change your
+  projectconfig and rebuild or replace `ba*.app.mode_selector` at runtime with
+  a custom selector that selects your custom app-mode(s).
+- The `ba*.app.threadpool_submit_no_wait()` method has been merged into the
+  `threadpool` object, so it now is `ba*.app.threadpool.submit_no_wait()`.
+- Clarified project rules for `snake_case` methods in C++ and updated various
+  methods accordingly such as `Object::Ref::get()` and `Object::Ref::exists()`.
+  See 'Getter/Setter Function Names' in
+  https://github.com/efroemling/ballistica/wiki/Coding-Style-Guide for more
+  info.
+- Removed support for tab key navigation. This has been largely ignored for
+  years and behaved in a mostly broken way in all recent UIs. Keyboard users
+  should use arrow keys for navigation. To update any old UI code, search for
+  and remove any 'claims_tab' arguments to UI calls since that argument no
+  longer exists.
+- Added a `get_unknown_type_fallback()` method to `dataclassio.IOMultiType`.
+  This be defined to allow multi-type data to be loadable even in the presence
+  of new types it doesn't recognize.
+- Added a `lossy` arg to `dataclassio.dataclass_from_dict()` and
+  `dataclassio.dataclass_from_json()`. Enum value fallbacks and the new
+  multitype fallbacks are now only applied when `lossy` is True. This also flags
+  the returned dataclass to prevent it from being serialized back out. Fallbacks
+  are useful for forward compatibility, but they are also dangerous in that they
+  can silently modify/destroy data, so this mechanism will hopefully help keep
+  them used safely.
+- Added a spinner widget (creatable via `bauiv1.spinnerwidget()`). This should
+  help things look more alive than the static 'loading...' text I've been using
+  in various places.
+- Tournament now award chests instead of tickets.
+- Tournaments are now free to enter if you are running this build or newer.
+- (build 22225) Added `babase.get_virtual_screen_size()` and to get the current
+  virtual screen size, `babase.get_virtual_safe_area_size()` to get the size of
+  the area where things are guaranteed to be visible no matter how the window is
+  resized, and added a `refresh_on_screen_size_changes` arg to the `MainWindow`
+  class to automatically recreate the window when the screen is resized. This
+  combined functionality can be used to custom fit UI elements to the exact
+  screen size, which is especially useful at the small ui-scale with its limited
+  screen real-estate. Generally medium and large ui-scale windows don't fill the
+  entire screen and can simply stay within the virtual safe area and thus don't
+  need to refresh.
+- (build 22237) Reverted the change from earlier in this release where small
+  ui-scale would have its own distinct widescreen virtual-safe-area. The virtual
+  safe area is now always 1280x720 (16:9). I came to realize there were
+  significant downsides to having safe-area be inconsistent; for instance
+  onscreen elements designed for one safe area might be out of frame for players
+  using the other, and things would effectively need to be limited to the
+  intersection of the two safe areas to work everywhere. Since it is now
+  possible to take advantage of the full screen area using the
+  `get_virtual_screen_size()` and whatnot mentioned above, it makes sense to
+  return to a single consistent safe area.
+- (build 22258) Updated the Windows redist installers to the latest versions. If
+  anyone is getting release builds of the game silently failing to launch,
+  install the bundled redist libs and try again.
+- (build 22258) Removed Windows debug redist libs such as `ucrtbased.dll` and
+  `vcruntime140d.dll`. Technically these are not supposed to be bundled with
+  software anyway and should instead be installed by installing Visual Studio. I
+  was shipping outdated versions which was causing extra problems, so I've
+  decided that I should follow the rules here and remove them. This means that
+  if you want to run debug builds on Windows you'll need to install Visual
+  Studio. Most people should be fine with release builds and don't need to worry
+  about this.
+- Added `docker-compose.yml` which can now be used with `docker compose` command
+- Changed Docker make targets to use `docker compose` instead of `docker build`
+- (build 22285) Window auto-recreation due to screen resizing is now disabled
+  while onscreen-keyboards are present. This works around an issue where text
+  editing on Android could break due to on-screen-keyboards causing screen
+  resizes which kill the text-widgets they target.
+- (build 22300) There is now a 'Secure V1 Connections' option in account
+  settings on ballistica.net which should prevent V1 account spoofing attacks
+  when enabled. The downside is that clients older than build 22300 will no
+  longer be able to access the account while that setting is enabled.
 
 ### 1.7.36 (build 21944, api 8, 2024-07-26)
 - Wired up Tokens, BombSquad's new purchasable currency. The first thing these

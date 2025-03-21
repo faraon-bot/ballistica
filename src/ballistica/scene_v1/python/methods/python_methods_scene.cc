@@ -2,7 +2,10 @@
 
 #include "ballistica/scene_v1/python/methods/python_methods_scene.h"
 
+#include <cstdio>
 #include <list>
+#include <string>
+#include <vector>
 
 #include "ballistica/base/dynamics/bg/bg_dynamics.h"
 #include "ballistica/base/graphics/graphics.h"
@@ -13,13 +16,11 @@
 #include "ballistica/base/support/plus_soft.h"
 #include "ballistica/classic/support/classic_app_mode.h"
 #include "ballistica/core/python/core_python.h"
-#include "ballistica/scene_v1/assets/scene_sound.h"
 #include "ballistica/scene_v1/assets/scene_texture.h"
 #include "ballistica/scene_v1/connection/connection_set.h"
 #include "ballistica/scene_v1/connection/connection_to_client.h"
 #include "ballistica/scene_v1/dynamics/collision.h"
 #include "ballistica/scene_v1/dynamics/dynamics.h"
-#include "ballistica/scene_v1/dynamics/material/material_action.h"
 #include "ballistica/scene_v1/node/node_type.h"
 #include "ballistica/scene_v1/python/class/python_class_activity_data.h"
 #include "ballistica/scene_v1/python/class/python_class_session_data.h"
@@ -31,7 +32,6 @@
 #include "ballistica/scene_v1/support/session_stream.h"
 #include "ballistica/shared/generic/json.h"
 #include "ballistica/shared/generic/utils.h"
-#include "ballistica/shared/python/python_command.h"
 
 namespace ballistica::scene_v1 {
 
@@ -41,8 +41,8 @@ namespace ballistica::scene_v1 {
 
 // --------------------------------- time --------------------------------------
 
-static auto PyTime(PyObject* self, PyObject* args,
-                   PyObject* keywds) -> PyObject* {
+static auto PyTime(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
 
   static const char* kwlist[] = {nullptr};
@@ -79,8 +79,8 @@ static PyMethodDef PyTimeDef = {
 
 // --------------------------------- timer -------------------------------------
 
-static auto PyTimer(PyObject* self, PyObject* args,
-                    PyObject* keywds) -> PyObject* {
+static auto PyTimer(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   assert(g_base->InLogicThread());
 
@@ -99,7 +99,7 @@ static auto PyTimer(PyObject* self, PyObject* args,
   SceneV1Context::Current().NewTimer(
       TimeType::kSim, static_cast<millisecs_t>(length * 1000.0),
       static_cast<bool>(repeat),
-      Object::New<Runnable, base::PythonContextCallRunnable>(call_obj).Get());
+      Object::New<Runnable, base::PythonContextCallRunnable>(call_obj).get());
 
   Py_RETURN_NONE;
   BA_PYTHON_CATCH;
@@ -152,8 +152,8 @@ static PyMethodDef PyTimerDef = {
 
 // ----------------------------- basetime -----------------------------------
 
-static auto PyBaseTime(PyObject* self, PyObject* args,
-                       PyObject* keywds) -> PyObject* {
+static auto PyBaseTime(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
 
   static const char* kwlist[] = {nullptr};
@@ -190,8 +190,8 @@ static PyMethodDef PyBaseTimeDef = {
 
 // --------------------------------- timer -------------------------------------
 
-static auto PyBaseTimer(PyObject* self, PyObject* args,
-                        PyObject* keywds) -> PyObject* {
+static auto PyBaseTimer(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   assert(g_base->InLogicThread());
 
@@ -208,7 +208,7 @@ static auto PyBaseTimer(PyObject* self, PyObject* args,
   SceneV1Context::Current().NewTimer(
       TimeType::kBase, static_cast<millisecs_t>(length * 1000.0),
       static_cast<bool>(repeat),
-      Object::New<Runnable, base::PythonContextCallRunnable>(call_obj).Get());
+      Object::New<Runnable, base::PythonContextCallRunnable>(call_obj).get());
 
   Py_RETURN_NONE;
   BA_PYTHON_CATCH;
@@ -261,8 +261,8 @@ static PyMethodDef PyBaseTimerDef = {
 
 // ------------------------------- getsession ----------------------------------
 
-static auto PyGetSession(PyObject* self, PyObject* args,
-                         PyObject* keywds) -> PyObject* {
+static auto PyGetSession(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   int raise = true;
   static const char* kwlist[] = {"doraise", nullptr};
@@ -305,8 +305,8 @@ static PyMethodDef PyGetSessionDef = {
 
 // --------------------------- new_host_session --------------------------------
 
-static auto PyNewHostSession(PyObject* self, PyObject* args,
-                             PyObject* keywds) -> PyObject* {
+static auto PyNewHostSession(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   const char* benchmark_type_str = nullptr;
   static const char* kwlist[] = {"sessiontype", "benchmark_type", nullptr};
@@ -347,8 +347,8 @@ static PyMethodDef PyNewHostSessionDef = {
 
 // -------------------------- new_replay_session -------------------------------
 
-static auto PyNewReplaySession(PyObject* self, PyObject* args,
-                               PyObject* keywds) -> PyObject* {
+static auto PyNewReplaySession(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   std::string file_name;
   PyObject* file_name_obj;
@@ -359,7 +359,7 @@ static auto PyNewReplaySession(PyObject* self, PyObject* args,
   }
   auto* appmode = classic::ClassicAppMode::GetActiveOrThrow();
 
-  file_name = Python::GetPyString(file_name_obj);
+  file_name = Python::GetString(file_name_obj);
   appmode->LaunchReplaySession(file_name);
   Py_RETURN_NONE;
   BA_PYTHON_CATCH;
@@ -377,8 +377,8 @@ static PyMethodDef PyNewReplaySessionDef = {
 
 // ------------------------------ is_in_replay ---------------------------------
 
-static auto PyIsInReplay(PyObject* self, PyObject* args,
-                         PyObject* keywds) -> PyObject* {
+static auto PyIsInReplay(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   BA_PRECONDITION(g_base->InLogicThread());
   static const char* kwlist[] = {nullptr};
@@ -408,8 +408,8 @@ static PyMethodDef PyIsInReplayDef = {
 
 // -------------------------- register_session-------- -------------------------
 
-static auto PyRegisterSession(PyObject* self, PyObject* args,
-                              PyObject* keywds) -> PyObject* {
+static auto PyRegisterSession(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   assert(g_base->InLogicThread());
   PyObject* session_obj;
@@ -443,8 +443,8 @@ static PyMethodDef PyRegisterSessionDef = {
 
 // --------------------------- register_activity -------------------------------
 
-static auto PyRegisterActivity(PyObject* self, PyObject* args,
-                               PyObject* keywds) -> PyObject* {
+static auto PyRegisterActivity(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   assert(g_base->InLogicThread());
   PyObject* activity_obj;
@@ -516,8 +516,8 @@ static PyMethodDef PyGetForegroundHostSessionDef = {
 
 // ----------------------------- newactivity -----------------------------------
 
-static auto PyNewActivity(PyObject* self, PyObject* args,
-                          PyObject* keywds) -> PyObject* {
+static auto PyNewActivity(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
 
   static const char* kwlist[] = {"activity_type", "settings", nullptr};
@@ -541,7 +541,7 @@ static auto PyNewActivity(PyObject* self, PyObject* args,
     settings = g_core->python->objs()
                    .Get(core::CorePython::ObjID::kShallowCopyCall)
                    .Call(args2);
-    if (!settings.Exists()) {
+    if (!settings.exists()) {
       throw Exception("Unable to shallow-copy settings.");
     }
   } else {
@@ -552,7 +552,7 @@ static auto PyNewActivity(PyObject* self, PyObject* args,
   if (!hs) {
     throw Exception("No HostSession found.", PyExcType::kContext);
   }
-  return hs->NewHostActivity(activity_type_obj, settings.Get());
+  return hs->NewHostActivity(activity_type_obj, settings.get());
 
   BA_PYTHON_CATCH;
 }
@@ -575,8 +575,8 @@ static PyMethodDef PyNewActivityDef = {
 
 // ----------------------------- getactivity -----------------------------------
 
-static auto PyGetActivity(PyObject* self, PyObject* args,
-                          PyObject* keywds) -> PyObject* {
+static auto PyGetActivity(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   int raise = true;
   static const char* kwlist[] = {"doraise", nullptr};
@@ -624,8 +624,8 @@ static PyMethodDef PyGetActivityDef = {
 
 // -------------------------- broadcastmessage ---------------------------------
 
-static auto PyBroadcastMessage(PyObject* self, PyObject* args,
-                               PyObject* keywds) -> PyObject* {
+static auto PyBroadcastMessage(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   const char* message = nullptr;
   PyObject* color_obj = Py_None;
@@ -653,7 +653,7 @@ static auto PyBroadcastMessage(PyObject* self, PyObject* args,
     return nullptr;
   }
   if (log) {
-    Log(LogLevel::kInfo, message);
+    g_core->Log(LogName::kBaNetworking, LogLevel::kInfo, message);
   }
 
   // Transient messages get sent to clients as high-level messages instead of
@@ -675,7 +675,7 @@ static auto PyBroadcastMessage(PyObject* self, PyObject* args,
     std::vector<int32_t> client_ids;
     if (auto* appmode = classic::ClassicAppMode::GetActiveOrWarn()) {
       if (clients_obj != Py_None) {
-        std::vector<int> client_ids2 = Python::GetPyInts(clients_obj);
+        std::vector<int> client_ids2 = Python::GetInts(clients_obj);
         appmode->connections()->SendScreenMessageToSpecificClients(
             message, color.x, color.y, color.z, client_ids2);
       } else {
@@ -751,7 +751,8 @@ static auto PyBroadcastMessage(PyObject* self, PyObject* args,
             tint_color.x, tint_color.y, tint_color.z, tint2_color.x,
             tint2_color.y, tint2_color.z);
       } else {
-        Log(LogLevel::kError, "Unhandled screenmessage output_stream case.");
+        g_core->Log(LogName::kBaNetworking, LogLevel::kError,
+                    "Unhandled screenmessage output_stream case.");
       }
     }
 
@@ -800,8 +801,8 @@ static PyMethodDef PyBroadcastMessageDef = {
 
 // ------------------------------- newnode -------------------------------------
 
-static auto PyNewNode(PyObject* self, PyObject* args,
-                      PyObject* keywds) -> PyObject* {
+static auto PyNewNode(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   Node* n = SceneV1Python::DoNewNode(args, keywds);
   if (!n) {
@@ -861,7 +862,7 @@ static auto PyPrintNodes(PyObject* self, PyObject* args) -> PyObject* {
     snprintf(buffer, sizeof(buffer), "#%d:   type: %-14s desc: %s", count,
              i->type()->name().c_str(), i->label().c_str());
     s += buffer;
-    Log(LogLevel::kInfo, buffer);
+    g_core->Log(LogName::kBa, LogLevel::kInfo, buffer);
     count++;
   }
   Py_RETURN_NONE;
@@ -1037,8 +1038,8 @@ static PyMethodDef PyGetCollisionInfoDef = {
 
 // ------------------------------ camerashake ----------------------------------
 
-static auto PyCameraShake(PyObject* self, PyObject* args,
-                          PyObject* keywds) -> PyObject* {
+static auto PyCameraShake(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   assert(g_base->InLogicThread());
   float intensity = 1.0f;
@@ -1088,8 +1089,8 @@ static PyMethodDef PyCameraShakeDef = {
 
 // -------------------------------- emitfx -------------------------------------
 
-static auto PyEmitFx(PyObject* self, PyObject* args,
-                     PyObject* keywds) -> PyObject* {
+static auto PyEmitFx(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   static const char* kwlist[] = {"position",  "velocity",     "count",
                                  "scale",     "spread",       "chunk_type",
@@ -1112,7 +1113,7 @@ static auto PyEmitFx(PyObject* self, PyObject* args,
   float x, y, z;
   assert(pos_obj);
   {
-    std::vector<float> vals = Python::GetPyFloats(pos_obj);
+    std::vector<float> vals = Python::GetFloats(pos_obj);
     if (vals.size() != 3) {
       throw Exception("Expected 3 floats for position.", PyExcType::kValue);
     }
@@ -1124,7 +1125,7 @@ static auto PyEmitFx(PyObject* self, PyObject* args,
   float vy = 0.0f;
   float vz = 0.0f;
   if (vel_obj != Py_None) {
-    std::vector<float> vals = Python::GetPyFloats(vel_obj);
+    std::vector<float> vals = Python::GetFloats(vel_obj);
     if (vals.size() != 3) {
       throw Exception("Expected 3 floats for velocity.", PyExcType::kValue);
     }
@@ -1304,8 +1305,8 @@ static PyMethodDef PyGetForegroundHostActivityDef = {
 
 // --------------------------- get_game_roster ---------------------------------
 
-static auto PyGetGameRoster(PyObject* self, PyObject* args,
-                            PyObject* keywds) -> PyObject* {
+static auto PyGetGameRoster(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   BA_PRECONDITION(g_base->InLogicThread());
   static const char* kwlist[] = {nullptr};
@@ -1346,7 +1347,7 @@ static auto PyGetGameRoster(PyObject* self, PyObject* args,
                     "id", id_val),
                 PythonRef::kSteal);
             // This increments ref.
-            PyList_Append(py_player_list.Get(), py_player.Get());
+            PyList_Append(py_player_list.get(), py_player.get());
           }
         }
       }
@@ -1366,7 +1367,7 @@ static auto PyGetGameRoster(PyObject* self, PyObject* args,
     // Let's also include a public account-id if we have one.
     std::string account_id;
     if (clientid == -1) {
-      account_id = g_base->plus()->GetPublicV1AccountID();
+      account_id = g_base->Plus()->GetPublicV1AccountID();
     } else {
       if (auto* appmode = classic::ClassicAppMode::GetActiveOrWarn()) {
         auto client2 =
@@ -1392,11 +1393,11 @@ static auto PyGetGameRoster(PyObject* self, PyObject* args,
                 ? PlayerSpec(spec->valuestring).GetDisplayString().c_str()
                 : "",
             "spec_string", (spec && spec->valuestring) ? spec->valuestring : "",
-            "players", py_player_list.Get(), "client_id", client_id_ref.Get(),
-            "account_id", account_id_ref.Get()),
+            "players", py_player_list.get(), "client_id", client_id_ref.get(),
+            "account_id", account_id_ref.get()),
         PythonRef::kSteal);
-    PyList_Append(py_client_list.Get(),
-                  py_client.Get());  // this increments ref
+    PyList_Append(py_client_list.get(),
+                  py_client.get());  // this increments ref
   }
   return py_client_list.NewRef();
   BA_PYTHON_CATCH;
@@ -1414,8 +1415,8 @@ static PyMethodDef PyGetGameRosterDef = {
 
 // ----------------------- set_debug_speed_exponent ----------------------------
 
-static auto PySetDebugSpeedExponent(PyObject* self,
-                                    PyObject* args) -> PyObject* {
+static auto PySetDebugSpeedExponent(PyObject* self, PyObject* args)
+    -> PyObject* {
   BA_PYTHON_TRY;
   int speed;
   if (!PyArg_ParseTuple(args, "i", &speed)) {
@@ -1453,8 +1454,8 @@ static PyMethodDef PySetDebugSpeedExponentDef = {
 
 // ----------------------- get_replay_speed_exponent ---------------------------
 
-static auto PyGetReplaySpeedExponent(PyObject* self,
-                                     PyObject* args) -> PyObject* {
+static auto PyGetReplaySpeedExponent(PyObject* self, PyObject* args)
+    -> PyObject* {
   BA_PYTHON_TRY;
   auto* appmode = classic::ClassicAppMode::GetActiveOrThrow();
   return PyLong_FromLong(appmode->replay_speed_exponent());
@@ -1476,8 +1477,8 @@ static PyMethodDef PyGetReplaySpeedExponentDef = {
 
 // ------------------------ set_replay_speed_exponent --------------------------
 
-static auto PySetReplaySpeedExponent(PyObject* self,
-                                     PyObject* args) -> PyObject* {
+static auto PySetReplaySpeedExponent(PyObject* self, PyObject* args)
+    -> PyObject* {
   BA_PYTHON_TRY;
   int speed;
   if (!PyArg_ParseTuple(args, "i", &speed)) {
@@ -1652,8 +1653,8 @@ static PyMethodDef PyGetRandomNamesDef = {
 
 // -------------------------------- ls_objects ---------------------------------
 
-static auto PyLsObjects(PyObject* self, PyObject* args,
-                        PyObject* keywds) -> PyObject* {
+static auto PyLsObjects(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   Object::LsObjects();
   Py_RETURN_NONE;
@@ -1677,8 +1678,8 @@ static PyMethodDef PyLsObjectsDef = {
 
 // --------------------------- ls_input_devices --------------------------------
 
-static auto PyLsInputDevices(PyObject* self, PyObject* args,
-                             PyObject* keywds) -> PyObject* {
+static auto PyLsInputDevices(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   g_base->input->LsInputDevices();
   Py_RETURN_NONE;
@@ -1702,8 +1703,8 @@ static PyMethodDef PyLsInputDevicesDef = {
 
 // -------------------------- set_internal_music -------------------------------
 
-static auto PySetInternalMusic(PyObject* self, PyObject* args,
-                               PyObject* keywds) -> PyObject* {
+static auto PySetInternalMusic(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   BA_PRECONDITION(g_base->InLogicThread());
   PyObject* music_obj;

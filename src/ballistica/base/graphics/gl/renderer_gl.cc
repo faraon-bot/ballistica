@@ -3,8 +3,14 @@
 #if BA_ENABLE_OPENGL
 #include "ballistica/base/graphics/gl/renderer_gl.h"
 
+#include <algorithm>
+#include <cstdio>
 #include <iterator>
+#include <list>
+#include <memory>
 #include <sstream>
+#include <string>
+#include <vector>
 
 #include "ballistica/base/graphics/component/special_component.h"
 #include "ballistica/base/graphics/gl/mesh/mesh_asset_data_gl.h"
@@ -84,11 +90,12 @@ void RendererGL::CheckGLError(const char* file, int line) {
     BA_PRECONDITION_FATAL(vendor);
     const char* renderer = (const char*)glGetString(GL_RENDERER);
     BA_PRECONDITION_FATAL(renderer);
-    Log(LogLevel::kError,
-        "OpenGL Error at " + std::string(file) + " line " + std::to_string(line)
-            + ": " + GLErrorToString(err) + "\nrenderer: " + renderer
-            + "\nvendor: " + vendor + "\nversion: " + version
-            + "\ntime: " + std::to_string(g_core->GetAppTimeMillisecs()));
+    g_core->Log(LogName::kBaGraphics, LogLevel::kError,
+                "OpenGL Error at " + std::string(file) + " line "
+                    + std::to_string(line) + ": " + GLErrorToString(err)
+                    + "\nrenderer: " + renderer + "\nvendor: " + vendor
+                    + "\nversion: " + version
+                    + "\ntime: " + std::to_string(g_core->AppTimeMillisecs()));
   }
 }
 
@@ -168,7 +175,7 @@ void RendererGL::CheckGLVersion() {
   if (gl_is_es()) {
     // GL ES version strings start with 'OpenGL ES X' with X being version.
     const char* prefix = "OpenGL ES ";
-    int prefixlen = strlen(prefix);
+    auto prefixlen = strlen(prefix);
     BA_PRECONDITION_FATAL(!strncmp(version_str, prefix, prefixlen));
     if (version_str[prefixlen] != '3') {
       FatalError(
@@ -217,11 +224,10 @@ void RendererGL::CheckGLCapabilities_() {
     basestr = "OpenGL";
   }
 
-  if (g_buildconfig.debug_build()) {
-    Log(LogLevel::kInfo, std::string("Using ") + basestr + " (vendor: " + vendor
-                             + ", renderer: " + renderer
-                             + ", version: " + version_str + ").");
-  }
+  g_core->Log(LogName::kBaGraphics, LogLevel::kInfo,
+              std::string("Using ") + basestr + " (vendor: " + vendor
+                  + ", renderer: " + renderer + ", version: " + version_str
+                  + ").");
 
   // Build a vector of extensions. Newer GLs give us extensions as lists
   // already, but on older ones we may need to break a single string apart
@@ -240,7 +246,8 @@ void RendererGL::CheckGLCapabilities_() {
       extensions.push_back(extension);
     }
   } else {
-    Log(LogLevel::kWarning, "Falling back on legacy GL_EXTENSIONS parsing.");
+    g_core->Log(LogName::kBaGraphics, LogLevel::kWarning,
+                "Falling back on legacy GL_EXTENSIONS parsing.");
     // Fall back on parsing the single giant string if need be.
     // (Can probably kill this).
     auto* ex = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
@@ -286,7 +293,8 @@ void RendererGL::CheckGLCapabilities_() {
     c_types.push_back(TextureCompressionType::kETC1);
   } else {
     if (g_buildconfig.ostype_android()) {
-      Log(LogLevel::kError, "Android device missing ETC1 support.");
+      g_core->Log(LogName::kBaGraphics, LogLevel::kError,
+                  "Android device missing ETC1 support.");
     }
   }
 
@@ -354,7 +362,8 @@ void RendererGL::CheckGLCapabilities_() {
                             &samples[0]);
       msaa_max_samples_rgb565_ = samples[0];
     } else {
-      BA_LOG_ONCE(LogLevel::kError, "Got 0 samplecounts for RGB565");
+      BA_LOG_ONCE(LogName::kBaGraphics, LogLevel::kError,
+                  "Got 0 samplecounts for RGB565");
       msaa_max_samples_rgb565_ = 0;
     }
 
@@ -368,7 +377,8 @@ void RendererGL::CheckGLCapabilities_() {
                             &samples[0]);
       msaa_max_samples_rgb8_ = samples[0];
     } else {
-      BA_LOG_ONCE(LogLevel::kError, "Got 0 samplecounts for RGB8");
+      BA_LOG_ONCE(LogName::kBaGraphics, LogLevel::kError,
+                  "Got 0 samplecounts for RGB8");
       msaa_max_samples_rgb8_ = 0;
     }
   } else {
@@ -809,29 +819,29 @@ void RendererGL::SyncGLState_() {
   auto* VAR = static_cast<TYPE*>(mesh_data->renderer_data()); \
   assert(VAR&& VAR == dynamic_cast<TYPE*>(mesh_data->renderer_data()))
 
-#define GET_INDEX_BUFFER()                                      \
-  assert(buffer != buffers.end());                              \
-  assert(index_size != index_sizes.end());                      \
-  MeshIndexBuffer16* indices16{nullptr};                        \
-  MeshIndexBuffer32* indices32{nullptr};                        \
-  assert(*index_size == 4 || *index_size == 2);                 \
-  bool use_indices32 = (*index_size == 4);                      \
-  if (use_indices32) {                                          \
-    indices32 = static_cast<MeshIndexBuffer32*>(buffer->Get()); \
-    assert(indices32&& indices32                                \
-           == dynamic_cast<MeshIndexBuffer32*>(buffer->Get())); \
-  } else {                                                      \
-    indices16 = static_cast<MeshIndexBuffer16*>(buffer->Get()); \
-    assert(indices16&& indices16                                \
-           == dynamic_cast<MeshIndexBuffer16*>(buffer->Get())); \
-  }                                                             \
-  index_size++;                                                 \
+#define GET_INDEX_BUFFER()                                                   \
+  assert(buffer != buffers.end());                                           \
+  assert(index_size != index_sizes.end());                                   \
+  MeshIndexBuffer16* indices16{nullptr};                                     \
+  MeshIndexBuffer32* indices32{nullptr};                                     \
+  assert(*index_size == 4 || *index_size == 2);                              \
+  bool use_indices32 = (*index_size == 4);                                   \
+  if (use_indices32) {                                                       \
+    indices32 = static_cast<MeshIndexBuffer32*>(buffer->get());              \
+    assert(indices32                                                         \
+           && indices32 == dynamic_cast<MeshIndexBuffer32*>(buffer->get())); \
+  } else {                                                                   \
+    indices16 = static_cast<MeshIndexBuffer16*>(buffer->get());              \
+    assert(indices16                                                         \
+           && indices16 == dynamic_cast<MeshIndexBuffer16*>(buffer->get())); \
+  }                                                                          \
+  index_size++;                                                              \
   buffer++
 
 #define GET_BUFFER(TYPE, VAR)                              \
   assert(buffer != buffers.end());                         \
-  auto* VAR = static_cast<TYPE*>(buffer->Get());           \
-  assert(VAR&& VAR == dynamic_cast<TYPE*>(buffer->Get())); \
+  auto* VAR = static_cast<TYPE*>(buffer->get());           \
+  assert(VAR&& VAR == dynamic_cast<TYPE*>(buffer->get())); \
   buffer++
 
 // Takes all latest mesh data from the client side and applies it to our gl
@@ -2379,8 +2389,8 @@ void RendererGL::UpdateVignetteTex_(bool force) {
     if (err != GL_NO_ERROR) {
       static bool reported = false;
       if (!reported) {
-        Log(LogLevel::kError,
-            "32-bit vignette creation failed; falling back to 16.");
+        g_core->Log(LogName::kBaGraphics, LogLevel::kError,
+                    "32-bit vignette creation failed; falling back to 16.");
         reported = true;
       }
       const int kVignetteTexWidth = 64;
@@ -2437,7 +2447,8 @@ void RendererGL::UpdateVignetteTex_(bool force) {
 
 auto RendererGL::GetFunkyDepthIssue_() -> bool {
   if (!funky_depth_issue_set_) {
-    BA_LOG_ONCE(LogLevel::kError, "fetching funky depth issue but not set");
+    BA_LOG_ONCE(LogName::kBaGraphics, LogLevel::kError,
+                "fetching funky depth issue but not set");
   }
   return funky_depth_issue_;
 }
@@ -2824,17 +2835,19 @@ auto RendererGL::NewScreenRenderTarget() -> RenderTarget* {
   return Object::NewDeferred<RenderTargetGL>(this);
 }
 
-auto RendererGL::NewFramebufferRenderTarget(
-    int width, int height, bool linear_interp, bool depth, bool texture,
-    bool depth_texture, bool high_quality, bool msaa,
-    bool alpha) -> Object::Ref<RenderTarget> {
+auto RendererGL::NewFramebufferRenderTarget(int width, int height,
+                                            bool linear_interp, bool depth,
+                                            bool texture, bool depth_texture,
+                                            bool high_quality, bool msaa,
+                                            bool alpha)
+    -> Object::Ref<RenderTarget> {
   return Object::New<RenderTarget, RenderTargetGL>(
       this, width, height, linear_interp, depth, texture, depth_texture,
       high_quality, msaa, alpha);
 }
 
-auto RendererGL::NewMeshData(MeshDataType mesh_type,
-                             MeshDrawType draw_type) -> MeshRendererData* {
+auto RendererGL::NewMeshData(MeshDataType mesh_type, MeshDrawType draw_type)
+    -> MeshRendererData* {
   switch (mesh_type) {
     case MeshDataType::kIndexedSimpleSplit: {
       MeshDataSimpleSplitGL* data;
@@ -3115,7 +3128,7 @@ void RendererGL::GenerateCameraBufferBlurPasses() {
   FramebufferObjectGL* src_fb =
       static_cast<RenderTargetGL*>(camera_render_target())->framebuffer();
   for (auto&& i : blur_buffers_) {
-    FramebufferObjectGL* fb = i.Get();
+    FramebufferObjectGL* fb = i.get();
     assert(fb);
     fb->Bind();
     SetViewport_(0, 0, fb->width(), fb->height());

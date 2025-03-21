@@ -3,6 +3,9 @@
 
 #include "ballistica/base/app_adapter/app_adapter_apple.h"
 
+#include <string>
+#include <vector>
+
 #include "ballistica/base/graphics/gl/renderer_gl.h"
 #include "ballistica/base/graphics/graphics.h"
 #include "ballistica/base/graphics/graphics_server.h"
@@ -135,7 +138,7 @@ auto AppAdapterApple::TryRender() -> bool {
 
     // Keep on drawing until the drawn window size
     // matches what we have (or until we try for too long or fail at drawing).
-    seconds_t start_time = g_core->GetAppTimeSeconds();
+    seconds_t start_time = g_core->AppTimeSeconds();
     for (int i = 0; i < 5; ++i) {
       bool size_differs =
           ((std::abs(resize_target_resolution_.x
@@ -144,7 +147,7 @@ auto AppAdapterApple::TryRender() -> bool {
            || (std::abs(resize_target_resolution_.y
                         - g_base->graphics_server->screen_pixel_height())
                > 0.01f));
-      if (size_differs && g_core->GetAppTimeSeconds() - start_time < 0.1
+      if (size_differs && g_core->AppTimeSeconds() - start_time < 0.1
           && result) {
         result = g_base->graphics_server->TryRender();
       }
@@ -166,7 +169,7 @@ auto AppAdapterApple::InGraphicsContext() -> bool {
 void AppAdapterApple::DoPushGraphicsContextRunnable(Runnable* runnable) {
   auto lock = std::scoped_lock(graphics_calls_mutex_);
   if (graphics_calls_.size() > 1000) {
-    BA_LOG_ONCE(LogLevel::kError, "graphics_calls_ got too big.");
+    BA_LOG_ONCE(LogName::kBa, LogLevel::kError, "graphics_calls_ got too big.");
   }
   graphics_calls_.push_back(runnable);
 }

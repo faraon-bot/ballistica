@@ -107,7 +107,9 @@ class GamepadSelectWindow(bui.MainWindow):
 
         bs.capture_gamepad_input(bui.WeakCall(self.gamepad_configure_callback))
 
+    @override
     def __del__(self) -> None:
+        super().__del__()
         bs.release_gamepad_input()
 
     @override
@@ -156,7 +158,12 @@ class GamepadSelectWindow(bui.MainWindow):
 
 class _NotConfigurableWindow(bui.MainWindow):
 
-    def __init__(self, device: bs.InputDevice) -> None:
+    def __init__(
+        self,
+        device: bs.InputDevice,
+        transition: str | None = 'in_right',
+        origin_widget: bui.Widget | None = None,
+    ) -> None:
         width = 700
         height = 200
         button_width = 80
@@ -170,9 +177,11 @@ class _NotConfigurableWindow(bui.MainWindow):
                 ),
                 size=(width, height),
             ),
-            transition='in_right',
-            origin_widget=None,
+            transition=transition,
+            origin_widget=origin_widget,
         )
+        self.device = device
+
         if device.allows_configuring_in_system_settings:
             msg = bui.Lstr(
                 resource='configureDeviceInSystemSettingsText',
@@ -212,10 +221,19 @@ class _NotConfigurableWindow(bui.MainWindow):
         )
         bui.containerwidget(edit=self._root_widget, cancel_button=btn)
 
-    # def _ok(self) -> None:
+    @override
+    def get_main_window_state(self) -> bui.MainWindowState:
+        # Support recreating our window for back/refresh purposes.
+        cls = type(self)
 
-    #     # Back would take us to the gamepad-select window. We want to go
-    #     # past that.
-    #     assert self.main_window_back_state is not None
-    #     self.main_window_back_state = self.main_window_back_state.parent
-    #     self.main_window_back()
+        # Pull stuff out of self here; if we do it in the lambda we'll
+        # keep self alive which we don't want.
+        device = self.device
+
+        return bui.BasicMainWindowState(
+            create_call=lambda transition, origin_widget: cls(
+                device=device,
+                transition=transition,
+                origin_widget=origin_widget,
+            )
+        )

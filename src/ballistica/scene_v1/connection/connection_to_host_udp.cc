@@ -2,6 +2,9 @@
 
 #include "ballistica/scene_v1/connection/connection_to_host_udp.h"
 
+#include <string>
+#include <vector>
+
 #include "ballistica/base/assets/assets.h"
 #include "ballistica/base/logic/logic.h"
 #include "ballistica/base/networking/network_writer.h"
@@ -122,7 +125,8 @@ void ConnectionToHostUDP::Update() {
 // departure before doing this when possible.
 void ConnectionToHostUDP::Die() {
   if (did_die_) {
-    Log(LogLevel::kError, "Posting multiple die messages; probably not good.");
+    g_core->Log(LogName::kBaNetworking, LogLevel::kError,
+                "Posting multiple die messages; probably not good.");
     return;
   }
   if (auto* appmode = classic::ClassicAppMode::GetActiveOrWarn()) {
@@ -130,9 +134,9 @@ void ConnectionToHostUDP::Die() {
       appmode->connections()->PushDisconnectedFromHostCall();
       did_die_ = true;
     } else {
-      Log(LogLevel::kError,
-          "Running update for non-current host-connection; shouldn't "
-          "happen.");
+      g_core->Log(LogName::kBaNetworking, LogLevel::kError,
+                  "Running update for non-current host-connection; shouldn't "
+                  "happen.");
     }
   }
 }

@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import bauiv1 as bui
 
@@ -21,6 +21,7 @@ class MacMusicAppPlaylistSelectWindow(bui.MainWindow):
         callback: Callable[[Any], Any],
         existing_playlist: str | None,
         existing_entry: Any,
+        *,
         transition: str | None = 'in_right',
         origin_widget: bui.Widget | None = None,
     ):
@@ -64,13 +65,11 @@ class MacMusicAppPlaylistSelectWindow(bui.MainWindow):
             parent=self._root_widget,
             position=(40, v - 340),
             size=(self._width - 80, 400),
-            claims_tab=True,
             selection_loops_to_parent=True,
         )
         bui.widget(edit=self._scrollwidget, right_widget=self._scrollwidget)
         self._column = bui.columnwidget(
             parent=self._scrollwidget,
-            claims_tab=True,
             selection_loops_to_parent=True,
         )
 
@@ -87,6 +86,27 @@ class MacMusicAppPlaylistSelectWindow(bui.MainWindow):
         musicplayer.get_playlists(self._playlists_cb)
         bui.containerwidget(
             edit=self._root_widget, selected_child=self._scrollwidget
+        )
+
+    @override
+    def get_main_window_state(self) -> bui.MainWindowState:
+        # Support recreating our window for back/refresh purposes.
+        cls = type(self)
+
+        # Pull stuff out of self here; if we do it in the lambda we wind
+        # up keeping self alive which we don't want.
+        callback = self._callback
+        existing_playlist = self._existing_playlist
+        existing_entry = self._existing_entry
+
+        return bui.BasicMainWindowState(
+            create_call=lambda transition, origin_widget: cls(
+                callback=callback,
+                existing_playlist=existing_playlist,
+                existing_entry=existing_entry,
+                transition=transition,
+                origin_widget=origin_widget,
+            )
         )
 
     def _playlists_cb(self, playlists: list[str]) -> None:

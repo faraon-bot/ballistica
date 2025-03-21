@@ -12,7 +12,9 @@ import bascenev1 as bs
 class TouchscreenSettingsWindow(bui.MainWindow):
     """Settings window for touchscreens."""
 
+    @override
     def __del__(self) -> None:
+        super().__del__()
         bs.set_touchscreen_editing(False)
 
     def __init__(
@@ -89,7 +91,6 @@ class TouchscreenSettingsWindow(bui.MainWindow):
             ),
             size=(self._scroll_width, self._scroll_height),
             claims_left_right=True,
-            claims_tab=True,
             selection_loops_to_parent=True,
         )
         self._subcontainer = bui.containerwidget(
@@ -97,7 +98,6 @@ class TouchscreenSettingsWindow(bui.MainWindow):
             size=(self._sub_width, self._sub_height),
             background=False,
             claims_left_right=True,
-            claims_tab=True,
             selection_loops_to_parent=True,
         )
         self._build_gui()

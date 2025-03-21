@@ -25,10 +25,12 @@ class MainMenuWindow(bui.MainWindow):
 
         # Preload some modules we use in a background thread so we won't
         # have a visual hitch when the user taps them.
-        bui.app.threadpool_submit_no_wait(self._preload_modules)
+        bui.app.threadpool.submit_no_wait(self._preload_modules)
 
         bui.set_analytics_screen('Main Menu')
         self._show_remote_app_info_on_first_launch()
+
+        uiscale = bui.app.ui_v1.uiscale
 
         # Make a vanilla container; we'll modify it to our needs in
         # refresh.
@@ -38,6 +40,8 @@ class MainMenuWindow(bui.MainWindow):
             ),
             transition=transition,
             origin_widget=origin_widget,
+            # We're affected by screen size only at small ui-scale.
+            refresh_on_screen_size_changes=uiscale is bui.UIScale.SMALL,
         )
 
         # Grab this stuff in case it changes.
@@ -70,11 +74,7 @@ class MainMenuWindow(bui.MainWindow):
     @override
     def get_main_window_state(self) -> bui.MainWindowState:
         # Support recreating our window for back/refresh purposes.
-        return self.do_get_main_window_state()
-
-    @classmethod
-    def do_get_main_window_state(cls) -> bui.MainWindowState:
-        """Classmethod to gen a windowstate for the main menu."""
+        cls = type(self)
         return bui.BasicMainWindowState(
             create_call=lambda transition, origin_widget: cls(
                 transition=transition, origin_widget=origin_widget
@@ -87,11 +87,10 @@ class MainMenuWindow(bui.MainWindow):
         # pylint: disable=cyclic-import
         import bauiv1lib.getremote as _unused
         import bauiv1lib.confirm as _unused2
-        import bauiv1lib.store.button as _unused3
         import bauiv1lib.account.settings as _unused5
         import bauiv1lib.store.browser as _unused6
         import bauiv1lib.credits as _unused7
-        import bauiv1lib.helpui as _unused8
+        import bauiv1lib.help as _unused8
         import bauiv1lib.settings.allsettings as _unused9
         import bauiv1lib.gather as _unused10
         import bauiv1lib.watch as _unused11
@@ -100,6 +99,7 @@ class MainMenuWindow(bui.MainWindow):
     def _show_remote_app_info_on_first_launch(self) -> None:
         app = bui.app
         assert app.classic is not None
+
         # The first time the non-in-game menu pops up, we might wanna
         # show a 'get-remote-app' dialog in front of it.
         if app.classic.first_main_menu:
@@ -156,30 +156,31 @@ class MainMenuWindow(bui.MainWindow):
         uiscale = app.ui_v1.uiscale
 
         # Temp note about UI changes.
-        bui.textwidget(
-            parent=self._root_widget,
-            position=(
-                (-400, 400)
-                if uiscale is bui.UIScale.LARGE
-                else (
-                    (-270, 320)
-                    if uiscale is bui.UIScale.MEDIUM
-                    else (-280, 280)
-                )
-            ),
-            size=(0, 0),
-            scale=0.4,
-            flatness=1.0,
-            text=(
-                'WARNING: This build contains a revamped UI\n'
-                'which is still a work-in-progress. A number\n'
-                'of features are not currently functional or\n'
-                'contain bugs. To go back to the stable legacy UI,\n'
-                'grab version 1.7.36 from ballistica.net'
-            ),
-            h_align='left',
-            v_align='top',
-        )
+        if bool(False):
+            bui.textwidget(
+                parent=self._root_widget,
+                position=(
+                    (-400, 400)
+                    if uiscale is bui.UIScale.LARGE
+                    else (
+                        (-270, 320)
+                        if uiscale is bui.UIScale.MEDIUM
+                        else (-280, 280)
+                    )
+                ),
+                size=(0, 0),
+                scale=0.4,
+                flatness=1.0,
+                text=(
+                    'WARNING: This build contains a revamped UI\n'
+                    'which is still a work-in-progress. A number\n'
+                    'of features are not currently functional or\n'
+                    'contain bugs. To go back to the stable legacy UI,\n'
+                    'grab version 1.7.36 from ballistica.net'
+                ),
+                h_align='left',
+                v_align='top',
+            )
 
         self._have_quit_button = app.classic.platform in (
             'windows',
@@ -188,10 +189,15 @@ class MainMenuWindow(bui.MainWindow):
         )
 
         if not classic.did_menu_intro:
-            self._tdelay = 1.7
-            self._t_delay_inc = 0.05
-            self._t_delay_play = 1.7
+            self._tdelay = 1.6
+            self._t_delay_inc = 0.03
             classic.did_menu_intro = True
+
+        td1 = 2
+        td2 = 1
+        td3 = 0
+        td4 = -1
+        td5 = -2
 
         self._width = 400.0
         self._height = 200.0
@@ -211,7 +217,12 @@ class MainMenuWindow(bui.MainWindow):
         side_button_2_scale = 0.5
 
         if uiscale is bui.UIScale.SMALL:
-            root_widget_scale = 1.3
+            # We're a generally widescreen shaped window, so bump our
+            # overall scale up a bit when screen width is wider than safe
+            # bounds to take advantage of the extra space.
+            screensize = bui.get_virtual_screen_size()
+            safesize = bui.get_virtual_safe_area_size()
+            root_widget_scale = min(1.55, 1.3 * screensize[0] / safesize[0])
             button_y_offs = -20.0
             self._button_height *= 1.3
         elif uiscale is bui.UIScale.MEDIUM:
@@ -231,6 +242,7 @@ class MainMenuWindow(bui.MainWindow):
         )
 
         # Version/copyright info.
+        thistdelay = self._tdelay + td3 * self._t_delay_inc
         bui.textwidget(
             parent=self._root_widget,
             position=(self._width * 0.5, button_y_offs - 10),
@@ -241,11 +253,12 @@ class MainMenuWindow(bui.MainWindow):
             text=(
                 f'{app.env.engine_version}'
                 f' build {app.env.engine_build_number}.'
-                f' Copyright 2024 Eric Froemling.'
+                f' Copyright 2025 Eric Froemling.'
             ),
             h_align='center',
             v_align='center',
-            transition_delay=self._t_delay_play,
+            # transition_delay=self._t_delay_play,
+            transition_delay=thistdelay,
         )
 
         # In kiosk mode, provide a button to get back to the kiosk menu.
@@ -255,13 +268,15 @@ class MainMenuWindow(bui.MainWindow):
             v = button_y_offs
             scale = 1.0
             this_b_width = self._button_width * 0.4 * scale
-            demo_menu_delay = (
-                0.0
-                if self._t_delay_play == 0.0
-                else max(0, self._t_delay_play + 0.1)
-            )
+            # demo_menu_delay = (
+            #     0.0
+            #     if self._t_delay_play == 0.0
+            #     else max(0, self._t_delay_play + 0.1)
+            # )
+            demo_menu_delay = 0.0
             self._demo_menu_button = bui.buttonwidget(
                 parent=self._root_widget,
+                id='demo',
                 position=(self._width * 0.5 - this_b_width * 0.5, v + 90),
                 size=(this_b_width, 45),
                 autoselect=True,
@@ -289,6 +304,8 @@ class MainMenuWindow(bui.MainWindow):
             - side_button_width * side_button_scale * 0.5
         )
         v = button_y_offs + side_button_y_offs
+
+        thistdelay = self._tdelay + td2 * self._t_delay_inc
         self._gather_button = btn = bui.buttonwidget(
             parent=self._root_widget,
             position=(h - side_button_width * side_button_scale * 0.5, v),
@@ -297,7 +314,7 @@ class MainMenuWindow(bui.MainWindow):
             autoselect=self._use_autoselect,
             button_type='square',
             label='',
-            transition_delay=self._tdelay,
+            transition_delay=thistdelay,
             on_activate_call=self._gather_press,
         )
         bui.textwidget(
@@ -305,7 +322,7 @@ class MainMenuWindow(bui.MainWindow):
             position=(h, v + side_button_height * side_button_scale * 0.25),
             size=(0, 0),
             scale=0.75,
-            transition_delay=self._tdelay,
+            transition_delay=thistdelay,
             draw_controller=btn,
             color=(0.75, 1.0, 0.7),
             maxwidth=side_button_width * side_button_scale * 0.8,
@@ -318,7 +335,7 @@ class MainMenuWindow(bui.MainWindow):
             parent=self._root_widget,
             size=(icon_size, icon_size),
             draw_controller=btn,
-            transition_delay=self._tdelay,
+            transition_delay=thistdelay,
             position=(
                 h - 0.5 * icon_size,
                 v
@@ -327,6 +344,7 @@ class MainMenuWindow(bui.MainWindow):
             ),
             texture=bui.gettexture('usersButton'),
         )
+        thistdelay = self._tdelay + td1 * self._t_delay_inc
 
         h -= (
             side_button_width * side_button_scale * 0.5
@@ -337,13 +355,14 @@ class MainMenuWindow(bui.MainWindow):
 
         btn = bui.buttonwidget(
             parent=self._root_widget,
+            id='howtoplay',
             position=(h, v),
             autoselect=self._use_autoselect,
             size=(side_button_2_width, side_button_2_height * 2.0),
             button_type='square',
             scale=side_button_2_scale,
             label=bui.Lstr(resource=f'{self._r}.howToPlayText'),
-            transition_delay=self._tdelay,
+            transition_delay=thistdelay,
             on_activate_call=self._howtoplay,
         )
         self._how_to_play_button = btn
@@ -353,6 +372,7 @@ class MainMenuWindow(bui.MainWindow):
         v = button_y_offs
         assert play_button_width is not None
         assert play_button_height is not None
+        thistdelay = self._tdelay + td3 * self._t_delay_inc
         self._play_button = start_button = bui.buttonwidget(
             parent=self._root_widget,
             position=(h - play_button_width * 0.5 * play_button_scale, v),
@@ -361,7 +381,7 @@ class MainMenuWindow(bui.MainWindow):
             scale=play_button_scale,
             text_res_scale=2.0,
             label=bui.Lstr(resource='playText'),
-            transition_delay=self._t_delay_play,
+            transition_delay=thistdelay,
             on_activate_call=self._play_press,
         )
         bui.containerwidget(
@@ -370,7 +390,7 @@ class MainMenuWindow(bui.MainWindow):
             selected_child=start_button,
         )
 
-        self._tdelay += self._t_delay_inc
+        # self._tdelay += self._t_delay_inc
 
         h = (
             self._width * 0.5
@@ -379,6 +399,7 @@ class MainMenuWindow(bui.MainWindow):
             + side_button_width * side_button_scale * 0.5
         )
         v = button_y_offs + side_button_y_offs
+        thistdelay = self._tdelay + td4 * self._t_delay_inc
         self._watch_button = btn = bui.buttonwidget(
             parent=self._root_widget,
             position=(h - side_button_width * side_button_scale * 0.5, v),
@@ -387,7 +408,7 @@ class MainMenuWindow(bui.MainWindow):
             autoselect=self._use_autoselect,
             button_type='square',
             label='',
-            transition_delay=self._tdelay,
+            transition_delay=thistdelay,
             on_activate_call=self._watch_press,
         )
         bui.textwidget(
@@ -395,7 +416,7 @@ class MainMenuWindow(bui.MainWindow):
             position=(h, v + side_button_height * side_button_scale * 0.25),
             size=(0, 0),
             scale=0.75,
-            transition_delay=self._tdelay,
+            transition_delay=thistdelay,
             color=(0.75, 1.0, 0.7),
             draw_controller=btn,
             maxwidth=side_button_width * side_button_scale * 0.8,
@@ -408,7 +429,7 @@ class MainMenuWindow(bui.MainWindow):
             parent=self._root_widget,
             size=(icon_size, icon_size),
             draw_controller=btn,
-            transition_delay=self._tdelay,
+            transition_delay=thistdelay,
             position=(
                 h - 0.5 * icon_size,
                 v
@@ -419,7 +440,7 @@ class MainMenuWindow(bui.MainWindow):
         )
 
         # Credits button.
-        self._tdelay += self._t_delay_inc
+        thistdelay = self._tdelay + td5 * self._t_delay_inc
 
         h += side_button_width * side_button_scale * 0.5 + hspace2
         v = button_y_offs + side_button_2_y_offs
@@ -438,18 +459,19 @@ class MainMenuWindow(bui.MainWindow):
             scale=side_button_2_scale,
             autoselect=self._use_autoselect,
             label=bui.Lstr(resource=f'{self._r}.creditsText'),
-            transition_delay=self._tdelay,
+            transition_delay=thistdelay,
             on_activate_call=self._credits,
         )
-        self._tdelay += self._t_delay_inc
 
         self._quit_button: bui.Widget | None
         if self._have_quit_button:
             v -= 1.1 * side_button_2_height * side_button_2_scale
+            # Nudge this a tiny bit right so we can press right from the
+            # credits button to get to it.
             self._quit_button = quit_button = bui.buttonwidget(
                 parent=self._root_widget,
                 autoselect=self._use_autoselect,
-                position=(h, v),
+                position=(h + 4.0, v),
                 size=(side_button_2_width, side_button_2_height),
                 scale=side_button_2_scale,
                 label=bui.Lstr(
@@ -461,13 +483,13 @@ class MainMenuWindow(bui.MainWindow):
                     )
                 ),
                 on_activate_call=self._quit,
-                transition_delay=self._tdelay,
+                transition_delay=thistdelay,
             )
 
             bui.containerwidget(
                 edit=self._root_widget, cancel_button=quit_button
             )
-            self._tdelay += self._t_delay_inc
+            # self._tdelay += self._t_delay_inc
         else:
             self._quit_button = None
 
@@ -509,7 +531,7 @@ class MainMenuWindow(bui.MainWindow):
 
     def _howtoplay(self) -> None:
         # pylint: disable=cyclic-import
-        from bauiv1lib.helpui import HelpWindow
+        from bauiv1lib.help import HelpWindow
 
         # no-op if we're not currently in control.
         if not self.main_window_has_control():

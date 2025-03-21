@@ -2,6 +2,10 @@
 
 #include "ballistica/scene_v1/python/methods/python_methods_networking.h"
 
+#include <set>
+#include <string>
+#include <vector>
+
 #include "ballistica/base/assets/assets.h"
 #include "ballistica/base/networking/network_reader.h"
 #include "ballistica/base/python/base_python.h"
@@ -120,7 +124,7 @@ static auto PySetPublicPartyStatsURL(PyObject* self, PyObject* args,
   auto* appmode = classic::ClassicAppMode::GetActiveOrThrow();
 
   // The call expects an empty string for the no-url option.
-  std::string url = (url_obj == Py_None) ? "" : Python::GetPyString(url_obj);
+  std::string url = (url_obj == Py_None) ? "" : Python::GetString(url_obj);
   appmode->SetPublicPartyStatsURL(url);
   Py_RETURN_NONE;
   BA_PYTHON_CATCH;
@@ -233,7 +237,7 @@ static auto PySetPublicPartyPublicAddressIPV4(PyObject* self, PyObject* args,
 
   std::optional<std::string> address{};
   if (address_obj != Py_None) {
-    address = Python::GetPyString(address_obj);
+    address = Python::GetString(address_obj);
   }
   appmode->set_public_party_public_address_ipv4(address);
   Py_RETURN_NONE;
@@ -267,7 +271,7 @@ static auto PySetPublicPartyPublicAddressIPV6(PyObject* self, PyObject* args,
 
   std::optional<std::string> address{};
   if (address_obj != Py_None) {
-    address = Python::GetPyString(address_obj);
+    address = Python::GetString(address_obj);
   }
   appmode->set_public_party_public_address_ipv6(address);
   Py_RETURN_NONE;
@@ -313,8 +317,8 @@ static PyMethodDef PySetAuthenticateClientsDef = {
 
 // ------------------------------- set_admins ----------------------------------
 
-static auto PySetAdmins(PyObject* self, PyObject* args,
-                        PyObject* keywds) -> PyObject* {
+static auto PySetAdmins(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   PyObject* admins_obj;
   static const char* kwlist[] = {"admins", nullptr};
@@ -378,8 +382,8 @@ static PyMethodDef PySetEnableDefaultKickVotingDef = {
 
 // --------------------------- connect_to_party --------------------------------
 
-static auto PyConnectToParty(PyObject* self, PyObject* args,
-                             PyObject* keywds) -> PyObject* {
+static auto PyConnectToParty(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   std::string address;
   PyObject* address_obj;
@@ -400,7 +404,7 @@ static auto PyConnectToParty(PyObject* self, PyObject* args,
   // Error if we're not in our app-mode.
   auto* appmode = classic::ClassicAppMode::GetActiveOrThrow();
 
-  address = Python::GetPyString(address_obj);
+  address = Python::GetString(address_obj);
 
   // Disallow in headless build (people were using this for spam-bots).
 
@@ -480,7 +484,7 @@ static auto PyGetConnectionToHostInfo(PyObject* self, PyObject* args,
                                    const_cast<char**>(kwlist))) {
     return nullptr;
   }
-  BA_LOG_ONCE(LogLevel::kWarning,
+  BA_LOG_ONCE(LogName::kBaNetworking, LogLevel::kWarning,
               "bascenev1.get_connection_to_host_info() is deprecated; use "
               "bascenev1.get_connection_to_host_info_2().");
   BA_PRECONDITION(g_base->InLogicThread());
@@ -535,11 +539,11 @@ static auto PyGetConnectionToHostInfo2(PyObject* self, PyObject* args,
         g_core->python->objs().Get(core::CorePython::ObjID::kEmptyTuple);
     auto keywds = PythonRef::Stolen(Py_BuildValue(
         "{sssisOsO}", "name", hc->party_name().c_str(), "build_number",
-        hc->build_number(), "address", addr_obj.Get(), "port", port_obj.Get()));
+        hc->build_number(), "address", addr_obj.get(), "port", port_obj.get()));
     auto result = g_scene_v1->python->objs()
                       .Get(SceneV1Python::ObjID::kHostInfoClass)
                       .Call(args, keywds);
-    if (!result.Exists()) {
+    if (!result.exists()) {
       throw Exception("Failed to instantiate HostInfo.", PyExcType::kRuntime);
     }
     return result.HandOver();
@@ -590,8 +594,8 @@ static PyMethodDef PyDisconnectFromHostDef = {
 
 // --------------------------- disconnect_client -------------------------------
 
-static auto PyDisconnectClient(PyObject* self, PyObject* args,
-                               PyObject* keywds) -> PyObject* {
+static auto PyDisconnectClient(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   int client_id;
   int ban_time = 300;  // Old default before we exposed this.
@@ -646,7 +650,7 @@ static auto PyGetClientPublicDeviceUUID(PyObject* self, PyObject* args,
   }
 
   // Connections should always be valid refs.
-  assert(connection->second.Exists());
+  assert(connection->second.exists());
 
   // Old clients don't assign this; it will be empty.
   if (connection->second->public_device_id().empty()) {
@@ -701,13 +705,13 @@ static PyMethodDef PyGetGamePortDef = {
 
 // ------------------------ set_master_server_source ---------------------------
 
-static auto PySetMasterServerSource(PyObject* self,
-                                    PyObject* args) -> PyObject* {
+static auto PySetMasterServerSource(PyObject* self, PyObject* args)
+    -> PyObject* {
   BA_PYTHON_TRY;
   int source;
   if (!PyArg_ParseTuple(args, "i", &source)) return nullptr;
   if (source != 0 && source != 1) {
-    BA_LOG_ONCE(LogLevel::kError,
+    BA_LOG_ONCE(LogName::kBaNetworking, LogLevel::kError,
                 "Invalid server source: " + std::to_string(source) + ".");
     source = 1;
   }
@@ -728,8 +732,8 @@ static PyMethodDef PySetMasterServerSourceDef = {
 
 // ----------------------------- host_scan_cycle -------------------------------
 
-static auto PyHostScanCycle(PyObject* self, PyObject* args,
-                            PyObject* keywds) -> PyObject* {
+static auto PyHostScanCycle(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   auto* appmode = classic::ClassicAppMode::GetActiveOrThrow();
   appmode->HostScanCycle();
@@ -757,8 +761,8 @@ static PyMethodDef PyHostScanCycleDef = {
 
 // ---------------------------- end_host_scanning ------------------------------
 
-static auto PyEndHostScanning(PyObject* self, PyObject* args,
-                              PyObject* keywds) -> PyObject* {
+static auto PyEndHostScanning(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   auto* appmode = classic::ClassicAppMode::GetActiveOrThrow();
   appmode->EndHostScanning();
@@ -805,8 +809,8 @@ static PyMethodDef PyHaveConnectedClientsDef = {
 
 // ------------------------------ chatmessage ----------------------------------
 
-static auto PyChatMessage(PyObject* self, PyObject* args,
-                          PyObject* keywds) -> PyObject* {
+static auto PyChatMessage(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   std::string message;
   PyObject* message_obj;
@@ -834,7 +838,7 @@ static auto PyChatMessage(PyObject* self, PyObject* args,
   }
 
   if (clients_obj != Py_None) {
-    clients = Python::GetPyInts(clients_obj);
+    clients = Python::GetInts(clients_obj);
     clients_p = &clients;
   }
   appmode->connections()->SendChatMessage(message, clients_p,
@@ -857,8 +861,8 @@ static PyMethodDef PyChatMessageDef = {
 
 // --------------------------- get_chat_messages -------------------------------
 
-static auto PyGetChatMessages(PyObject* self, PyObject* args,
-                              PyObject* keywds) -> PyObject* {
+static auto PyGetChatMessages(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
 
   BA_PRECONDITION(g_base->InLogicThread());

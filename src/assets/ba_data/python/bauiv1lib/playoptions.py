@@ -17,12 +17,15 @@ if TYPE_CHECKING:
 
     from bauiv1lib.play import PlaylistSelectContext
 
+REQUIRE_PRO = False
+
 
 class PlayOptionsWindow(PopupWindow):
     """A popup window for configuring play options."""
 
     def __init__(
         self,
+        *,
         sessiontype: type[bs.Session],
         playlist: str,
         scale_origin: tuple[float, float],
@@ -315,7 +318,7 @@ class PlayOptionsWindow(PopupWindow):
                 label=bui.Lstr(resource='teamNamesColorText'),
             )
             assert bui.app.classic is not None
-            if not bui.app.classic.accounts.have_pro():
+            if REQUIRE_PRO and not bui.app.classic.accounts.have_pro():
                 bui.imagewidget(
                     parent=self.root_widget,
                     size=(30, 30),
@@ -431,7 +434,7 @@ class PlayOptionsWindow(PopupWindow):
         self._update()
 
     def _custom_colors_names_press(self) -> None:
-        from bauiv1lib.account import show_sign_in_prompt
+        from bauiv1lib.account.signin import show_sign_in_prompt
         from bauiv1lib.teamnamescolors import TeamNamesColorsWindow
         from bauiv1lib.purchase import PurchaseWindow
 
@@ -439,7 +442,7 @@ class PlayOptionsWindow(PopupWindow):
         assert plus is not None
 
         assert bui.app.classic is not None
-        if not bui.app.classic.accounts.have_pro():
+        if REQUIRE_PRO and not bui.app.classic.accounts.have_pro():
             if plus.get_v1_account_state() != 'signed_in':
                 show_sign_in_prompt()
             else:
@@ -528,6 +531,11 @@ class PlayOptionsWindow(PopupWindow):
 
     def _run_selected_playlist(self) -> None:
         bui.unlock_all_input()
+
+        # Save our place in the UI that we'll return to when done.
+        if bs.app.classic is not None:
+            bs.app.classic.save_ui_state()
+
         try:
             bs.new_host_session(self._sessiontype)
         except Exception:

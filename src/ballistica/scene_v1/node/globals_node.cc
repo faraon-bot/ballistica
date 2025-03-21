@@ -2,18 +2,19 @@
 
 #include "ballistica/scene_v1/node/globals_node.h"
 
+#include <string>
+#include <vector>
+
 #include "ballistica/base/audio/audio.h"
 #include "ballistica/base/dynamics/bg/bg_dynamics.h"
 #include "ballistica/base/graphics/graphics.h"
 #include "ballistica/base/graphics/support/camera.h"
 #include "ballistica/base/support/classic_soft.h"
 #include "ballistica/classic/support/classic_app_mode.h"
-#include "ballistica/core/core.h"
 #include "ballistica/scene_v1/node/node_attribute.h"
 #include "ballistica/scene_v1/node/node_type.h"
 #include "ballistica/scene_v1/support/host_activity.h"
 #include "ballistica/scene_v1/support/scene.h"
-#include "ballistica/shared/python/python.h"
 
 // FIXME: should not need this here.
 #if BA_VR_BUILD
@@ -26,7 +27,7 @@ class GlobalsNodeType : public NodeType {
  public:
 #define BA_NODE_TYPE_CLASS GlobalsNode
   BA_NODE_CREATE_CALL(CreateGlobals);
-  BA_INT64_ATTR_READONLY(real_time, GetAppTimeMillisecs);
+  BA_INT64_ATTR_READONLY(real_time, AppTimeMillisecs);
   BA_INT64_ATTR_READONLY(time, GetTime);
   BA_INT64_ATTR_READONLY(step, GetStep);
   BA_FLOAT_ATTR(debris_friction, debris_friction, SetDebrisFriction);
@@ -111,9 +112,9 @@ GlobalsNode::GlobalsNode(Scene* scene) : Node(scene, node_type) {
   // FIXME: Need to update this for non-host activities at some point.
   if (HostActivity* ha = context_ref().GetHostActivity()) {
     if (ha->globals_node()) {
-      Log(LogLevel::kWarning,
-          "More than one globals node created in HostActivity; this "
-          "shouldn't happen");
+      g_core->Log(LogName::kBa, LogLevel::kWarning,
+                  "More than one globals node created in HostActivity; this "
+                  "shouldn't happen");
     }
     ha->SetGlobalsNode(this);
 
@@ -183,7 +184,7 @@ void GlobalsNode::SetAsForeground() {
   if (g_base->HaveClassic()) {
     g_base->classic()->PlayMusic(music_, music_continuous_);
   } else {
-    BA_LOG_ONCE(LogLevel::kWarning,
+    BA_LOG_ONCE(LogName::kBa, LogLevel::kWarning,
                 "Classic not present; music will not play.");
   }
 }
@@ -205,7 +206,7 @@ auto GlobalsNode::IsCurrentGlobals() const -> bool {
           && scene->globals_node() == this);
 }
 
-auto GlobalsNode::GetAppTimeMillisecs() -> millisecs_t {
+auto GlobalsNode::AppTimeMillisecs() -> millisecs_t {
   // Pull this from our scene so we return consistent values throughout a step.
   return scene()->last_step_real_time();
 }
@@ -479,7 +480,7 @@ void GlobalsNode::SetMusicCount(int val) {
     if (g_base->HaveClassic()) {
       g_base->classic()->PlayMusic(music_, music_continuous_);
     } else {
-      BA_LOG_ONCE(LogLevel::kWarning,
+      BA_LOG_ONCE(LogName::kBa, LogLevel::kWarning,
                   "Classic not present; music will not play (b).");
     }
     // g_classic->python->PlayMusic(music_, music_continuous_);

@@ -7,7 +7,7 @@ from __future__ import annotations
 import time
 import random
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import bauiv1 as bui
 import bascenev1 as bs
@@ -33,6 +33,7 @@ class PartyQueueWindow(bui.Window):
             account_id: str,
             name: str,
         ):
+            # pylint: disable=too-many-positional-arguments
             self.claimed = False
             self._line_left = parent.get_line_left()
             self._line_width = parent.get_line_width()
@@ -323,7 +324,9 @@ class PartyQueueWindow(bui.Window):
         )
         self.update()
 
+    @override
     def __del__(self) -> None:
+        super().__del__()
         try:
             plus = bui.app.plus
             assert plus is not None
@@ -351,12 +354,12 @@ class PartyQueueWindow(bui.Window):
         self, account_id: str | None, origin_widget: bui.Widget
     ) -> None:
         """A dude was clicked so we should show his account info."""
-        from bauiv1lib.account import viewer
+        from bauiv1lib.account.viewer import AccountViewerWindow
 
         if account_id is None:
             bui.getsound('error').play()
             return
-        viewer.AccountViewerWindow(
+        AccountViewerWindow(
             account_id=account_id,
             position=origin_widget.get_screen_space_center(),
         )
@@ -551,6 +554,11 @@ class PartyQueueWindow(bui.Window):
                     self._last_connect_attempt_time is None
                     or now - self._last_connect_attempt_time > 10.0
                 ):
+
+                    # Store UI location to return to when done.
+                    if bs.app.classic is not None:
+                        bs.app.classic.save_ui_state()
+
                     bs.connect_to_party(
                         address=self._address,
                         port=self._port,
@@ -560,7 +568,7 @@ class PartyQueueWindow(bui.Window):
 
     def on_boost_press(self) -> None:
         """Boost was pressed."""
-        from bauiv1lib import account
+        from bauiv1lib.account.signin import show_sign_in_prompt
 
         # from bauiv1lib import gettickets
 
@@ -568,11 +576,15 @@ class PartyQueueWindow(bui.Window):
         assert plus is not None
 
         if plus.get_v1_account_state() != 'signed_in':
-            account.show_sign_in_prompt()
+            show_sign_in_prompt()
             return
 
         if plus.get_v1_account_ticket_count() < self._boost_tickets:
             bui.getsound('error').play()
+            bui.screenmessage(
+                bui.Lstr(resource='notEnoughTicketsText'),
+                color=(1, 0, 0),
+            )
             # gettickets.show_get_tickets_prompt()
             return
 

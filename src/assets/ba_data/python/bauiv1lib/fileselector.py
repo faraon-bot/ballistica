@@ -23,6 +23,7 @@ class FileSelectorWindow(bui.MainWindow):
         self,
         path: str,
         callback: Callable[[str | None], Any] | None = None,
+        *,
         show_base_path: bool = True,
         valid_file_extensions: Sequence[str] | None = None,
         allow_folders: bool = False,
@@ -386,12 +387,10 @@ class FileSelectorWindow(bui.MainWindow):
             bui.containerwidget(
                 edit=self._scrollwidget,
                 claims_left_right=False,
-                claims_tab=False,
             )
             bui.containerwidget(
                 edit=self._subcontainer,
                 claims_left_right=False,
-                claims_tab=False,
                 selection_loops=False,
                 print_list_exit_instructions=False,
             )

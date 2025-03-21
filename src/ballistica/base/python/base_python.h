@@ -4,6 +4,8 @@
 #define BALLISTICA_BASE_PYTHON_BASE_PYTHON_H_
 
 #include <set>
+#include <string>
+#include <vector>
 
 #include "ballistica/base/base.h"
 #include "ballistica/shared/python/python_object_set.h"
@@ -73,7 +75,6 @@ class BasePython {
     kEmptyCall,
     kPrintTraceCall,
     kToggleFullscreenCall,
-    kAppReadConfigCall,
     kUIRemotePressCall,
     kRemoveInGameAdsMessageCall,
     kAppOnNativeStartCall,
@@ -116,13 +117,15 @@ class BasePython {
     kUnsupportedControllerMessageCall,
     kGetV2AccountIdCall,
     kAppOnNativeActiveChangedCall,
+    kCopyDevConsoleHistoryCall,
+    kAppOnScreenSizeChangeCall,
     kLast  // Sentinel; must be at end.
   };
 
   void AddPythonClasses(PyObject* module);
   void ImportPythonObjs();
   void ImportPythonAppObjs();
-  void ReadConfig();
+  void SetConfig(PyObject* config);
 
   const auto& objs() { return objs_; }
 
@@ -145,8 +148,8 @@ class BasePython {
   // functions (which themselves call these functions)
   auto GetRawConfigValue(const char* name)
       -> PyObject*;  // (returns a borrowed ref)
-  auto GetRawConfigValue(const char* name,
-                         const char* default_value) -> std::string;
+  auto GetRawConfigValue(const char* name, const char* default_value)
+      -> std::string;
   auto GetRawConfigValue(const char* name, float default_value) -> float;
   auto GetRawConfigValue(const char* name, std::optional<float> default_value)
       -> std::optional<float>;
@@ -181,6 +184,8 @@ class BasePython {
  private:
   std::set<std::string> do_once_locations_;
   PythonObjectSet<ObjID> objs_;
+  float last_screen_res_x_{-1.0f};
+  float last_screen_res_y_{-1.0f};
 };
 
 }  // namespace ballistica::base

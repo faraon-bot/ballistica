@@ -15,6 +15,8 @@
 
 #include <string>  // IWYU pragma: keep. (macros below use this)
 
+#include "ballistica/shared/python/python.h"  // IWYU pragma: keep.
+
 // Saving/restoring Python error state; useful when function PyObject_Str()
 // or other functionality is needed during error reporting; by default it
 // craps out when an error is set.
@@ -65,12 +67,13 @@
   ((void)0)
 
 // For use in tp_dealloc; simply prints the error.
-#define BA_PYTHON_DEALLOC_CATCH                                   \
-  }                                                               \
-  catch (const std::exception& e) {                               \
-    Log(LogLevel::kError, std::string("tp_dealloc exception: ")   \
-                              + GetShortExceptionDescription(e)); \
-  }                                                               \
+#define BA_PYTHON_DEALLOC_CATCH                         \
+  }                                                     \
+  catch (const std::exception& e) {                     \
+    g_core->Log(LogName::kBa, LogLevel::kError,         \
+                std::string("tp_dealloc exception: ")   \
+                    + GetShortExceptionDescription(e)); \
+  }                                                     \
   ((void)0)
 
 // Sets Python error and returns -1.

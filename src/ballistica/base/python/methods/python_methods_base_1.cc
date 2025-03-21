@@ -2,6 +2,11 @@
 
 #include "ballistica/base/python/methods/python_methods_base_1.h"
 
+#include <cstdio>
+#include <list>
+#include <string>
+#include <vector>
+
 #include "ballistica/base/app_adapter/app_adapter.h"
 #include "ballistica/base/app_mode/empty_app_mode.h"
 #include "ballistica/base/audio/audio_server.h"
@@ -11,6 +16,7 @@
 #include "ballistica/base/python/support/python_context_call_runnable.h"
 #include "ballistica/base/ui/dev_console.h"
 #include "ballistica/base/ui/ui.h"
+#include "ballistica/core/platform/core_platform.h"
 #include "ballistica/shared/foundation/event_loop.h"
 #include "ballistica/shared/foundation/logging.h"
 #include "ballistica/shared/python/python.h"
@@ -161,31 +167,10 @@ static PyMethodDef PyIsXCodeBuildDef = {
     "(internal)\n",
 };
 
-// ----------------------- can_display_full_unicode ----------------------------
-
-static auto PyCanDisplayFullUnicode(PyObject* self) -> PyObject* {
-  BA_PYTHON_TRY;
-  if (g_buildconfig.enable_os_font_rendering()) {
-    Py_RETURN_TRUE;
-  }
-  Py_RETURN_FALSE;
-  BA_PYTHON_CATCH;
-}
-
-static PyMethodDef PyCanDisplayFullUnicodeDef = {
-    "can_display_full_unicode",            // name
-    (PyCFunction)PyCanDisplayFullUnicode,  // method
-    METH_NOARGS,                           // flags
-
-    "can_display_full_unicode() -> bool\n"
-    "\n"
-    "(internal)",
-};
-
 // -------------------------- app_instance_uuid --------------------------------
 
-static auto PyAppInstanceUUID(PyObject* self, PyObject* args,
-                              PyObject* keywds) -> PyObject* {
+static auto PyAppInstanceUUID(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   static const char* kwlist[] = {nullptr};
   if (!PyArg_ParseTupleAndKeywords(args, keywds, "",
@@ -208,8 +193,8 @@ static PyMethodDef PyAppInstanceUUIDDef = {
 
 // --------------------------- user_ran_commands -------------------------------
 
-static auto PyUserRanCommands(PyObject* self, PyObject* args,
-                              PyObject* keywds) -> PyObject* {
+static auto PyUserRanCommands(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   static const char* kwlist[] = {nullptr};
   if (!PyArg_ParseTupleAndKeywords(args, keywds, "",
@@ -233,8 +218,8 @@ static PyMethodDef PyUserRanCommandsDef = {
 
 // -------------------------------- pushcall ----------------------------------
 
-static auto PyPushCall(PyObject* self, PyObject* args,
-                       PyObject* keywds) -> PyObject* {
+static auto PyPushCall(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   PyObject* call_obj;
   int from_other_thread{};
@@ -270,12 +255,12 @@ static auto PyPushCall(PyObject* self, PyObject* args,
     // Warn the user not to use this from the logic thread since it doesnt
     // save/restore context.
     if (!suppress_warning && g_base->InLogicThread()) {
-      Log(LogLevel::kWarning,
-          "babase.pushcall() called from the logic thread with "
-          "from_other_thread set to true (call "
-              + Python::ObjToString(call_obj) + " at "
-              + Python::GetPythonFileLocation()
-              + "). That arg should only be used from other threads.");
+      g_core->Log(LogName::kBa, LogLevel::kWarning,
+                  "babase.pushcall() called from the logic thread with "
+                  "from_other_thread set to true (call "
+                      + Python::ObjToString(call_obj) + " at "
+                      + Python::GetPythonFileLocation()
+                      + "). That arg should only be used from other threads.");
     }
 
     assert(Python::HaveGIL());
@@ -337,16 +322,16 @@ static PyMethodDef PyPushCallDef = {
 
 // ------------------------------ apptime --------------------------------------
 
-static auto PyAppTime(PyObject* self, PyObject* args,
-                      PyObject* keywds) -> PyObject* {
+static auto PyAppTime(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   static const char* kwlist[] = {nullptr};
   if (!PyArg_ParseTupleAndKeywords(args, keywds, "",
                                    const_cast<char**>(kwlist))) {
     return nullptr;
   }
-  return PyFloat_FromDouble(
-      0.001 * static_cast<double>(g_core->GetAppTimeMillisecs()));
+  return PyFloat_FromDouble(0.001
+                            * static_cast<double>(g_core->AppTimeMillisecs()));
   BA_PYTHON_CATCH;
 }
 
@@ -373,8 +358,8 @@ static PyMethodDef PyAppTimeDef = {
 
 // ------------------------------ apptimer -------------------------------------
 
-static auto PyAppTimer(PyObject* self, PyObject* args,
-                       PyObject* keywds) -> PyObject* {
+static auto PyAppTimer(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   BA_PRECONDITION(g_base->InLogicThread());
   double length;
@@ -390,7 +375,7 @@ static auto PyAppTimer(PyObject* self, PyObject* args,
   }
   g_base->logic->NewAppTimer(
       static_cast<microsecs_t>(length * 1000000.0), false,
-      Object::New<Runnable, PythonContextCallRunnable>(call_obj).Get());
+      Object::New<Runnable, PythonContextCallRunnable>(call_obj).get());
   Py_RETURN_NONE;
   BA_PYTHON_CATCH;
 }
@@ -431,8 +416,8 @@ static PyMethodDef PyAppTimerDef = {
 
 // --------------------------- displaytime -------------------------------------
 
-static auto PyDisplayTime(PyObject* self, PyObject* args,
-                          PyObject* keywds) -> PyObject* {
+static auto PyDisplayTime(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   static const char* kwlist[] = {nullptr};
   if (!PyArg_ParseTupleAndKeywords(args, keywds, "",
@@ -466,8 +451,8 @@ static PyMethodDef PyDisplayTimeDef = {
 
 // ---------------------------- displaytimer -----------------------------------
 
-static auto PyDisplayTimer(PyObject* self, PyObject* args,
-                           PyObject* keywds) -> PyObject* {
+static auto PyDisplayTimer(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   BA_PRECONDITION(g_base->InLogicThread());
   double length;
@@ -483,7 +468,7 @@ static auto PyDisplayTimer(PyObject* self, PyObject* args,
   }
   g_base->logic->NewDisplayTimer(
       static_cast<microsecs_t>(length * 1000000.0), false,
-      Object::New<Runnable, PythonContextCallRunnable>(call_obj).Get());
+      Object::New<Runnable, PythonContextCallRunnable>(call_obj).get());
   Py_RETURN_NONE;
   BA_PYTHON_CATCH;
 }
@@ -529,8 +514,8 @@ static PyMethodDef PyDisplayTimerDef = {
 
 // ----------------------------------- quit ------------------------------------
 
-static auto PyQuit(PyObject* self, PyObject* args,
-                   PyObject* keywds) -> PyObject* {
+static auto PyQuit(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   BA_PRECONDITION(g_base->IsAppStarted());
 
@@ -594,8 +579,8 @@ static PyMethodDef PyDoApplyAppConfigDef = {
 
 // ----------------------------- commit_config ---------------------------------
 
-static auto PyCommitConfig(PyObject* self, PyObject* args,
-                           PyObject* keywds) -> PyObject* {
+static auto PyCommitConfig(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   PyObject* config_obj;
   static const char* kwlist[] = {"config", nullptr};
@@ -794,16 +779,18 @@ static PyMethodDef PyEnvDef = {
 
 // -------------------------------- emit_log -----------------------------------
 
-static auto PyEmitLog(PyObject* self, PyObject* args,
-                      PyObject* keywds) -> PyObject* {
+static auto PyEmitLog(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
-  static const char* kwlist[] = {"name", "level", "message", nullptr};
+  static const char* kwlist[] = {"name", "level", "timestamp", "message",
+                                 nullptr};
   const char* name;
   const char* levelstr;
   const char* message;
-  if (!PyArg_ParseTupleAndKeywords(args, keywds, "sss",
+  double timestamp;
+  if (!PyArg_ParseTupleAndKeywords(args, keywds, "ssds",
                                    const_cast<char**>(kwlist), &name, &levelstr,
-                                   &message)) {
+                                   &timestamp, &message)) {
     return nullptr;
   }
 
@@ -824,7 +811,7 @@ static auto PyEmitLog(PyObject* self, PyObject* args,
     fprintf(stderr, "Invalid log level to emit_log(): %s\n", levelstr);
     level = LogLevel::kInfo;
   }
-  Logging::EmitLog(name, level, message);
+  Logging::EmitLog(name, level, timestamp, message);
 
   Py_RETURN_NONE;
   BA_PYTHON_CATCH;
@@ -835,7 +822,8 @@ static PyMethodDef PyEmitLogDef = {
     (PyCFunction)PyEmitLog,        // method
     METH_VARARGS | METH_KEYWORDS,  // flags
 
-    "emit_log(name: str, level: str, message: str) -> None\n"
+    "emit_log(name: str, level: str, timestamp: float, message: str)"
+    " -> None\n"
     "\n"
     "(internal)\n"
     "\n"
@@ -846,36 +834,36 @@ static PyMethodDef PyEmitLogDef = {
 
 // ------------------------------ lifecyclelog ---------------------------------
 
-static auto PyLifecycleLog(PyObject* self, PyObject* args,
-                           PyObject* keywds) -> PyObject* {
-  BA_PYTHON_TRY;
-  static const char* kwlist[] = {"message", nullptr};
-  const char* message;
-  if (!PyArg_ParseTupleAndKeywords(args, keywds, "s",
-                                   const_cast<char**>(kwlist), &message)) {
-    return nullptr;
-  }
+// static auto PyLifecycleLog(PyObject* self, PyObject* args, PyObject* keywds)
+//     -> PyObject* {
+//   BA_PYTHON_TRY;
+//   static const char* kwlist[] = {"message", nullptr};
+//   const char* message;
+//   if (!PyArg_ParseTupleAndKeywords(args, keywds, "s",
+//                                    const_cast<char**>(kwlist), &message)) {
+//     return nullptr;
+//   }
 
-  g_core->LifecycleLog(message);
+//   g_core->LifecycleLog(message);
 
-  Py_RETURN_NONE;
-  BA_PYTHON_CATCH;
-}
+//   Py_RETURN_NONE;
+//   BA_PYTHON_CATCH;
+// }
 
-static PyMethodDef PyLifecycleLogDef = {
-    "lifecyclelog",                // name
-    (PyCFunction)PyLifecycleLog,   // method
-    METH_VARARGS | METH_KEYWORDS,  // flags
+// static PyMethodDef PyLifecycleLogDef = {
+//     "lifecyclelog",                // name
+//     (PyCFunction)PyLifecycleLog,   // method
+//     METH_VARARGS | METH_KEYWORDS,  // flags
 
-    "lifecyclelog(message: str) -> None\n"
-    "\n"
-    "(internal)",
-};
+//     "lifecyclelog(message: str) -> None\n"
+//     "\n"
+//     "(internal)",
+// };
 
 // ----------------------------- v1_cloud_log ----------------------------------
 
-static auto PyV1CloudLog(PyObject* self, PyObject* args,
-                         PyObject* keywds) -> PyObject* {
+static auto PyV1CloudLog(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   const char* message;
   static const char* kwlist[] = {"message", nullptr};
@@ -903,8 +891,8 @@ static PyMethodDef PyV1CloudLogDef = {
 
 // --------------------------- music_player_stop -------------------------------
 
-static auto PyMusicPlayerStop(PyObject* self, PyObject* args,
-                              PyObject* keywds) -> PyObject* {
+static auto PyMusicPlayerStop(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   static const char* kwlist[] = {nullptr};
   if (!PyArg_ParseTupleAndKeywords(args, keywds, "",
@@ -929,8 +917,8 @@ static PyMethodDef PyMusicPlayerStopDef = {
 
 // ---------------------------- music_player_play ------------------------------
 
-static auto PyMusicPlayerPlay(PyObject* self, PyObject* args,
-                              PyObject* keywds) -> PyObject* {
+static auto PyMusicPlayerPlay(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   PyObject* files_obj;
   static const char* kwlist[] = {"files", nullptr};
@@ -1035,8 +1023,8 @@ static PyMethodDef PyReloadMediaDef = {
 
 // --------------------------- mac_music_app_init ------------------------------
 
-static auto PyMacMusicAppInit(PyObject* self, PyObject* args,
-                              PyObject* keywds) -> PyObject* {
+static auto PyMacMusicAppInit(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   g_core->platform->MacMusicAppInit();
   Py_RETURN_NONE;
@@ -1099,8 +1087,8 @@ static PyMethodDef PyMacMusicAppSetVolumeDef = {
 
 // --------------------------- mac_music_app_stop ------------------------------
 
-static auto PyMacMusicAppStop(PyObject* self, PyObject* args,
-                              PyObject* keywds) -> PyObject* {
+static auto PyMacMusicAppStop(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   g_core->platform->MacMusicAppStop();
   Py_RETURN_NONE;
@@ -1177,8 +1165,8 @@ static PyMethodDef PyMacMusicAppGetPlaylistsDef = {
 
 // -------------------------- is_os_playing_music ------------------------------
 
-static auto PyIsOSPlayingMusic(PyObject* self, PyObject* args,
-                               PyObject* keywds) -> PyObject* {
+static auto PyIsOSPlayingMusic(PyObject* self, PyObject* args, PyObject* keywds)
+    -> PyObject* {
   BA_PYTHON_TRY;
   if (g_core->platform->IsOSPlayingMusic()) {
     Py_RETURN_TRUE;
@@ -1686,7 +1674,6 @@ auto PythonMethodsBase1::GetMethods() -> std::vector<PyMethodDef> {
       PyRunAppDef,
       PyAppNameUpperDef,
       PyIsXCodeBuildDef,
-      PyCanDisplayFullUnicodeDef,
       PyEmitLogDef,
       PyV1CloudLogDef,
       PyEnvDef,
@@ -1713,7 +1700,7 @@ auto PythonMethodsBase1::GetMethods() -> std::vector<PyMethodDef> {
       PyMacMusicAppPlayPlaylistDef,
       PyMacMusicAppGetPlaylistsDef,
       PyIsOSPlayingMusicDef,
-      PyLifecycleLogDef,
+      // PyLifecycleLogDef,
       PyExecArgDef,
       PyOnAppRunningDef,
       PyOnInitialAppModeSetDef,

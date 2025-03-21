@@ -14,6 +14,7 @@ from bacommon.login import LoginType
 import bacommon.cloud
 import bauiv1 as bui
 
+from bauiv1lib.connectivity import wait_for_connectivity
 
 # These days we're directing people to the web based account settings
 # for V2 account linking and trying to get them to disconnect remaining
@@ -27,11 +28,11 @@ class AccountSettingsWindow(bui.MainWindow):
     def __init__(
         self,
         transition: str | None = 'in_right',
-        modal: bool = False,
         origin_widget: bui.Widget | None = None,
         close_once_signed_in: bool = False,
     ):
         # pylint: disable=too-many-statements
+        # pylint: disable=too-many-locals
 
         plus = bui.app.plus
         assert plus is not None
@@ -48,7 +49,6 @@ class AccountSettingsWindow(bui.MainWindow):
         self._explicitly_signed_out_of_gpgs = False
 
         self._r = 'accountSettingsWindow'
-        self._modal = modal
         self._needs_refresh = False
         self._v1_signed_in = plus.get_v1_account_state() == 'signed_in'
         self._v1_account_state_num = plus.get_v1_account_state_num()
@@ -62,19 +62,39 @@ class AccountSettingsWindow(bui.MainWindow):
         assert app.classic is not None
         uiscale = app.ui_v1.uiscale
 
-        self._width = 850 if uiscale is bui.UIScale.SMALL else 660
-        x_offs = 70 if uiscale is bui.UIScale.SMALL else 0
+        self._width = 980 if uiscale is bui.UIScale.SMALL else 660
         self._height = (
-            380
+            600
             if uiscale is bui.UIScale.SMALL
             else 430 if uiscale is bui.UIScale.MEDIUM else 490
         )
 
+        # Do some fancy math to fill all available screen area up to the
+        # size of our backing container. This lets us fit to the exact
+        # screen shape at small ui scale.
+        screensize = bui.get_virtual_screen_size()
+
+        scale = (
+            1.9
+            if uiscale is bui.UIScale.SMALL
+            else 1.4 if uiscale is bui.UIScale.MEDIUM else 1.0
+        )
+        # Calc screen size in our local container space and clamp to a
+        # bit smaller than our container size.
+        target_width = min(self._width - 80, screensize[0] / scale)
+        target_height = min(self._height - 80, screensize[1] / scale)
+
+        # To get top/left coords, go to the center of our window and
+        # offset by half the width/height of our target area.
+        yoffs = 0.5 * self._height + 0.5 * target_height + 30.0
+
+        self._scroll_width = target_width
+        self._scroll_height = target_height - 33
+        scroll_bottom = yoffs - 61 - self._scroll_height
+
         self._sign_in_button = None
         self._sign_in_text = None
 
-        self._scroll_width = self._width - (100 + x_offs * 2)
-        self._scroll_height = self._height - 120
         self._sub_width = self._scroll_width - 20
 
         # Determine which sign-in/sign-out buttons we should show.
@@ -89,32 +109,25 @@ class AccountSettingsWindow(bui.MainWindow):
         # Always want to show our web-based v2 login option.
         self._show_sign_in_buttons.append('V2Proxy')
 
-        # Legacy v1 device accounts available only if the user
-        # has explicitly enabled deprecated login types.
+        # Legacy v1 device accounts available only if the user has
+        # explicitly enabled deprecated login types.
         if bui.app.config.resolve('Show Deprecated Login Types'):
             self._show_sign_in_buttons.append('Device')
 
-        top_extra = 15 if uiscale is bui.UIScale.SMALL else 0
         super().__init__(
             root_widget=bui.containerwidget(
-                size=(self._width, self._height + top_extra),
-                # transition=transition,
+                size=(self._width, self._height),
                 toolbar_visibility=(
                     'menu_minimal'
                     if uiscale is bui.UIScale.SMALL
                     else 'menu_full'
                 ),
-                scale=(
-                    2.07
-                    if uiscale is bui.UIScale.SMALL
-                    else 1.4 if uiscale is bui.UIScale.MEDIUM else 1.0
-                ),
-                stack_offset=(
-                    (0, 8) if uiscale is bui.UIScale.SMALL else (0, 0)
-                ),
+                scale=scale,
             ),
             transition=transition,
             origin_widget=origin_widget,
+            # We're affected by screen size only at small ui-scale.
+            refresh_on_screen_size_changes=uiscale is bui.UIScale.SMALL,
         )
         if uiscale is bui.UIScale.SMALL:
             self._back_button = None
@@ -124,31 +137,31 @@ class AccountSettingsWindow(bui.MainWindow):
         else:
             self._back_button = btn = bui.buttonwidget(
                 parent=self._root_widget,
-                position=(51 + x_offs, self._height - 62),
+                position=(51, yoffs - 52.0),
                 size=(120, 60),
                 scale=0.8,
                 text_scale=1.2,
                 autoselect=True,
-                label=bui.Lstr(
-                    resource='doneText' if self._modal else 'backText'
-                ),
-                button_type='regular' if self._modal else 'back',
+                label=bui.Lstr(resource='backText'),
+                button_type='back',
                 on_activate_call=self.main_window_back,
             )
             bui.containerwidget(edit=self._root_widget, cancel_button=btn)
-            if not self._modal:
-                bui.buttonwidget(
-                    edit=btn,
-                    button_type='backSmall',
-                    size=(60, 56),
-                    label=bui.charstr(bui.SpecialChar.BACK),
-                )
+            bui.buttonwidget(
+                edit=btn,
+                button_type='backSmall',
+                size=(60, 56),
+                label=bui.charstr(bui.SpecialChar.BACK),
+            )
 
-        titleyoffs = -12 if uiscale is bui.UIScale.SMALL else 0
-        titlescale = 0.6 if uiscale is bui.UIScale.SMALL else 1.0
+        titleyoffs = -45.0 if uiscale is bui.UIScale.SMALL else -28.0
+        titlescale = 0.7 if uiscale is bui.UIScale.SMALL else 1.0
         bui.textwidget(
             parent=self._root_widget,
-            position=(self._width * 0.5, self._height - 41 + titleyoffs),
+            position=(
+                self._width * 0.5,
+                yoffs + titleyoffs,
+            ),
             size=(0, 0),
             text=bui.Lstr(resource=f'{self._r}.titleText'),
             color=app.ui_v1.title_color,
@@ -161,14 +174,14 @@ class AccountSettingsWindow(bui.MainWindow):
         self._scrollwidget = bui.scrollwidget(
             parent=self._root_widget,
             highlight=False,
-            position=(
-                (self._width - self._scroll_width) * 0.5,
-                self._height - 65 - self._scroll_height,
-            ),
             size=(self._scroll_width, self._scroll_height),
+            position=(
+                self._width * 0.5 - self._scroll_width * 0.5,
+                scroll_bottom,
+            ),
             claims_left_right=True,
-            claims_tab=True,
             selection_loops_to_parent=True,
+            border_opacity=0.4,
         )
         self._subcontainer: bui.Widget | None = None
         self._refresh()
@@ -198,8 +211,8 @@ class AccountSettingsWindow(bui.MainWindow):
             return
 
         # Hmm should update this to use get_account_state_num.
-        # Theoretically if we switch from one signed-in account to another
-        # in the background this would break.
+        # Theoretically if we switch from one signed-in account to
+        # another in the background this would break.
         v1_account_state_num = plus.get_v1_account_state_num()
         v1_account_state = plus.get_v1_account_state()
         show_legacy_unlink_button = self._should_show_legacy_unlink_button()
@@ -214,8 +227,8 @@ class AccountSettingsWindow(bui.MainWindow):
             self._show_legacy_unlink_button = show_legacy_unlink_button
             self._refresh()
 
-        # Go ahead and refresh some individual things
-        # that may change under us.
+        # Go ahead and refresh some individual things that may change
+        # under us.
         self._update_linked_accounts_text()
         self._update_unlink_accounts_button()
         self._refresh_campaign_progress_text()
@@ -325,28 +338,14 @@ class AccountSettingsWindow(bui.MainWindow):
         deprecated_space = 60
 
         # Game Center currently has a single UI for everything.
-        show_game_service_button = game_center_active
-        game_service_button_space = 60.0
+        show_game_center_button = game_center_active
+        game_center_button_space = 60.0
 
         # Phasing this out (for V2 accounts at least).
         show_linked_accounts_text = (
             self._v1_signed_in and v1_account_type != 'V2'
         )
         linked_accounts_text_space = 60.0
-
-        # Always show achievements except in the game-center case where
-        # its unified UI covers them.
-        # show_achievements_button =
-        # self._v1_signed_in and not game_center_active
-
-        # Update: No longer showing this since its visible on main
-        # toolbar.
-        show_achievements_button = False
-        achievements_button_space = 60.0
-
-        # show_achievements_text = (
-        #     self._v1_signed_in and not show_achievements_button
-        # )
 
         # Update: No longer showing this since its visible on main
         # toolbar.
@@ -369,13 +368,29 @@ class AccountSettingsWindow(bui.MainWindow):
         show_manage_account_button = primary_v2_account is not None
         manage_account_button_space = 70.0
 
-        show_delete_account_button = primary_v2_account is not None
+        show_create_account_button = show_v2_proxy_sign_in_button
+        create_account_button_space = 70.0
+
+        # Apple asks us to make a delete-account button directly
+        # available in the UI. Currently disabling this elsewhere
+        # however as I feel that poking 'Manage Account' and scrolling
+        # down to 'Delete Account' is not hard to find.
+        show_delete_account_button = primary_v2_account is not None and (
+            bui.app.classic is not None
+            and bui.app.classic.platform == 'mac'
+            and bui.app.classic.subplatform == 'appstore'
+        )
         delete_account_button_space = 70.0
 
         show_link_accounts_button = self._v1_signed_in and (
             primary_v2_account is None or FORCE_ENABLE_V1_LINKING
         )
         link_accounts_button_space = 70.0
+
+        show_v1_obsolete_note = self._v1_signed_in and (
+            primary_v2_account is None
+        )
+        v1_obsolete_note_space = 80.0
 
         show_unlink_accounts_button = show_link_accounts_button
         unlink_accounts_button_space = 90.0
@@ -416,14 +431,12 @@ class AccountSettingsWindow(bui.MainWindow):
             self._sub_height += sign_in_button_space
         if show_device_sign_in_button:
             self._sub_height += sign_in_button_space + deprecated_space
-        if show_game_service_button:
-            self._sub_height += game_service_button_space
+        if show_game_center_button:
+            self._sub_height += game_center_button_space
         if show_linked_accounts_text:
             self._sub_height += linked_accounts_text_space
         if show_achievements_text:
             self._sub_height += achievements_text_space
-        if show_achievements_button:
-            self._sub_height += achievements_button_space
         if show_leaderboards_button:
             self._sub_height += leaderboards_button_space
         if show_campaign_progress:
@@ -434,8 +447,12 @@ class AccountSettingsWindow(bui.MainWindow):
             self._sub_height += sign_in_benefits_space
         if show_manage_account_button:
             self._sub_height += manage_account_button_space
+        if show_create_account_button:
+            self._sub_height += create_account_button_space
         if show_link_accounts_button:
             self._sub_height += link_accounts_button_space
+        if show_v1_obsolete_note:
+            self._sub_height += v1_obsolete_note_space
         if show_unlink_accounts_button:
             self._sub_height += unlink_accounts_button_space
         if show_v2_link_info:
@@ -453,7 +470,6 @@ class AccountSettingsWindow(bui.MainWindow):
             size=(self._sub_width, self._sub_height),
             background=False,
             claims_left_right=True,
-            claims_tab=True,
             selection_loops_to_parent=True,
         )
 
@@ -802,6 +818,26 @@ class AccountSettingsWindow(bui.MainWindow):
             bui.widget(edit=btn, show_buffer_bottom=40, show_buffer_top=100)
             self._sign_in_text = None
 
+        if show_v1_obsolete_note:
+            v -= v1_obsolete_note_space
+            bui.textwidget(
+                parent=self._subcontainer,
+                h_align='center',
+                v_align='center',
+                size=(0, 0),
+                position=(self._sub_width * 0.5, v + 35.0),
+                text=(
+                    'YOU ARE SIGNED IN WITH A V1 ACCOUNT.\n'
+                    'THESE ARE NO LONGER SUPPORTED AND MANY\n'
+                    'FEATURES WILL NOT WORK. PLEASE SWITCH TO\n'
+                    'A V2 ACCOUNT OR UPGRADE THIS ONE.'
+                ),
+                maxwidth=self._sub_width * 0.8,
+                color=(1, 0, 0),
+                shadow=1.0,
+                flatness=1.0,
+            )
+
         if show_manage_account_button:
             button_width = 300
             v -= manage_account_button_space
@@ -823,31 +859,18 @@ class AccountSettingsWindow(bui.MainWindow):
             )
             bui.widget(edit=btn, left_widget=bbtn)
 
-        # the button to go to OS-Specific leaderboards/high-score-lists/etc.
-        if show_game_service_button:
+        if show_create_account_button:
             button_width = 300
-            v -= game_service_button_space * 0.6
-            if game_center_active:
-                # Note: Apparently Game Center is just called 'Game Center'
-                # in all languages. Can revisit if not true.
-                # https://developer.apple.com/forums/thread/725779
-                game_service_button_label = bui.Lstr(
-                    value=bui.charstr(bui.SpecialChar.GAME_CENTER_LOGO)
-                    + 'Game Center'
-                )
-            else:
-                raise ValueError(
-                    "unknown account type: '" + str(v1_account_type) + "'"
-                )
-            self._game_service_button = btn = bui.buttonwidget(
+            v -= create_account_button_space
+            self._create_button = btn = bui.buttonwidget(
                 parent=self._subcontainer,
-                position=((self._sub_width - button_width) * 0.5, v),
+                position=((self._sub_width - button_width) * 0.5, v - 30),
+                autoselect=True,
+                size=(button_width, 60),
+                label=bui.Lstr(resource=f'{self._r}.createAnAccountText'),
                 color=(0.55, 0.5, 0.6),
                 textcolor=(0.75, 0.7, 0.8),
-                autoselect=True,
-                on_activate_call=self._on_game_service_button_press,
-                size=(button_width, 50),
-                label=game_service_button_label,
+                on_activate_call=bui.WeakCall(self._on_create_account_press),
             )
             if first_selectable is None:
                 first_selectable = btn
@@ -855,9 +878,42 @@ class AccountSettingsWindow(bui.MainWindow):
                 edit=btn, right_widget=bui.get_special_widget('squad_button')
             )
             bui.widget(edit=btn, left_widget=bbtn)
-            v -= game_service_button_space * 0.4
+
+        # the button to go to OS-Specific leaderboards/high-score-lists/etc.
+        if show_game_center_button:
+            button_width = 300
+            v -= game_center_button_space * 1.0
+            if game_center_active:
+                # Note: Apparently Game Center is just called 'Game Center'
+                # in all languages. Can revisit if not true.
+                # https://developer.apple.com/forums/thread/725779
+                game_center_button_label = bui.Lstr(
+                    value=bui.charstr(bui.SpecialChar.GAME_CENTER_LOGO)
+                    + 'Game Center'
+                )
+            else:
+                raise ValueError(
+                    "unknown account type: '" + str(v1_account_type) + "'"
+                )
+            self._game_center_button = btn = bui.buttonwidget(
+                parent=self._subcontainer,
+                position=((self._sub_width - button_width) * 0.5, v),
+                color=(0.55, 0.5, 0.6),
+                textcolor=(0.75, 0.7, 0.8),
+                autoselect=True,
+                on_activate_call=self._on_game_center_button_press,
+                size=(button_width, 50),
+                label=game_center_button_label,
+            )
+            if first_selectable is None:
+                first_selectable = btn
+            bui.widget(
+                edit=btn, right_widget=bui.get_special_widget('squad_button')
+            )
+            bui.widget(edit=btn, left_widget=bbtn)
+            v -= game_center_button_space * 0.4
         else:
-            self.game_service_button = None
+            self.game_center_button = None
 
         self._achievements_text: bui.Widget | None
         if show_achievements_text:
@@ -876,49 +932,13 @@ class AccountSettingsWindow(bui.MainWindow):
         else:
             self._achievements_text = None
 
-        self._achievements_button: bui.Widget | None
-        if show_achievements_button:
-            button_width = 300
-            v -= achievements_button_space * 0.85
-            self._achievements_button = btn = bui.buttonwidget(
-                parent=self._subcontainer,
-                position=((self._sub_width - button_width) * 0.5, v),
-                color=(0.55, 0.5, 0.6),
-                textcolor=(0.75, 0.7, 0.8),
-                autoselect=True,
-                icon=bui.gettexture(
-                    'googlePlayAchievementsIcon'
-                    if gpgs_active
-                    else 'achievementsIcon'
-                ),
-                icon_color=(
-                    (0.8, 0.95, 0.7) if gpgs_active else (0.85, 0.8, 0.9)
-                ),
-                on_activate_call=(
-                    self._on_custom_achievements_press
-                    if gpgs_active
-                    else self._on_achievements_press
-                ),
-                size=(button_width, 50),
-                label='',
-            )
-            if first_selectable is None:
-                first_selectable = btn
-            bui.widget(
-                edit=btn, right_widget=bui.get_special_widget('squad_button')
-            )
-            bui.widget(edit=btn, left_widget=bbtn)
-            v -= achievements_button_space * 0.15
-        else:
-            self._achievements_button = None
-
-        if show_achievements_text or show_achievements_button:
+        if show_achievements_text:
             self._refresh_achievements()
 
         self._leaderboards_button: bui.Widget | None
         if show_leaderboards_button:
             button_width = 300
-            v -= leaderboards_button_space * 0.85
+            v -= leaderboards_button_space
             self._leaderboards_button = btn = bui.buttonwidget(
                 parent=self._subcontainer,
                 position=((self._sub_width - button_width) * 0.5, v),
@@ -937,7 +957,6 @@ class AccountSettingsWindow(bui.MainWindow):
                 edit=btn, right_widget=bui.get_special_widget('squad_button')
             )
             bui.widget(edit=btn, left_widget=bbtn)
-            v -= leaderboards_button_space * 0.15
         else:
             self._leaderboards_button = None
 
@@ -982,7 +1001,7 @@ class AccountSettingsWindow(bui.MainWindow):
         # bit of spacing before the reset/sign-out section
         # v -= 5
 
-        button_width = 250
+        button_width = 300
 
         self._linked_accounts_text: bui.Widget | None
         if show_linked_accounts_text:
@@ -1195,7 +1214,7 @@ class AccountSettingsWindow(bui.MainWindow):
             )
         self._needs_refresh = False
 
-    def _on_game_service_button_press(self) -> None:
+    def _on_game_center_button_press(self) -> None:
         if bui.app.plus is not None:
             bui.app.plus.show_game_service_ui()
         else:
@@ -1212,34 +1231,26 @@ class AccountSettingsWindow(bui.MainWindow):
         else:
             logging.warning('show_game_service_ui requires plus feature-set.')
 
-    def _on_achievements_press(self) -> None:
-        # pylint: disable=cyclic-import
-        from bauiv1lib import achievements
-
-        assert self._achievements_button is not None
-        achievements.AchievementsWindow(
-            position=self._achievements_button.get_screen_space_center()
-        )
-
     def _on_manage_account_press(self) -> None:
         self._do_manage_account_press(WebLocation.ACCOUNT_EDITOR)
+
+    def _on_create_account_press(self) -> None:
+        bui.open_url('https://ballistica.net/createaccount')
 
     def _on_delete_account_press(self) -> None:
         self._do_manage_account_press(WebLocation.ACCOUNT_DELETE_SECTION)
 
     def _do_manage_account_press(self, weblocation: WebLocation) -> None:
+        # If we're still waiting for our master-server connection,
+        # keep the user informed of this instead of rushing in and
+        # failing immediately.
+        wait_for_connectivity(
+            on_connected=lambda: self._do_manage_account(weblocation)
+        )
+
+    def _do_manage_account(self, weblocation: WebLocation) -> None:
         plus = bui.app.plus
         assert plus is not None
-
-        # Preemptively fail if it looks like we won't be able to talk to
-        # the server anyway.
-        if not plus.cloud.connected:
-            bui.screenmessage(
-                bui.Lstr(resource='internal.unavailableNoConnectionText'),
-                color=(1, 0, 0),
-            )
-            bui.getsound('error').play()
-            return
 
         bui.screenmessage(bui.Lstr(resource='oneMomentText'))
 
@@ -1282,8 +1293,8 @@ class AccountSettingsWindow(bui.MainWindow):
         plus = bui.app.plus
         assert plus is not None
 
-        # if this is not present, we haven't had contact from the server so
-        # let's not proceed..
+        # If this is not present, we haven't had contact from the server
+        # so let's not proceed.
         if plus.get_v1_account_public_login_id() is None:
             return False
         accounts = plus.get_v1_account_misc_read_val_2('linkedAccounts', [])
@@ -1300,7 +1311,8 @@ class AccountSettingsWindow(bui.MainWindow):
 
     def _should_show_legacy_unlink_button(self) -> bool:
         plus = bui.app.plus
-        assert plus is not None
+        if plus is None:
+            return False
 
         # Only show this when fully signed in to a v2 account.
         if not self._v1_signed_in or plus.accounts.primary is None:
@@ -1401,10 +1413,7 @@ class AccountSettingsWindow(bui.MainWindow):
 
     def _refresh_achievements(self) -> None:
         assert bui.app.classic is not None
-        if (
-            self._achievements_text is None
-            and self._achievements_button is None
-        ):
+        if self._achievements_text is None:
             return
         complete = sum(
             1 if a.complete else 0 for a in bui.app.classic.ach.achievements
@@ -1417,8 +1426,6 @@ class AccountSettingsWindow(bui.MainWindow):
 
         if self._achievements_text is not None:
             bui.textwidget(edit=self._achievements_text, text=txt_final)
-        if self._achievements_button is not None:
-            bui.buttonwidget(edit=self._achievements_button, label=txt_final)
 
     def _link_accounts_press(self) -> None:
         # pylint: disable=cyclic-import
@@ -1480,8 +1487,6 @@ class AccountSettingsWindow(bui.MainWindow):
         bui.apptimer(0.1, bui.WeakCall(self._update))
 
     def _sign_in_press(self, login_type: str | LoginType) -> None:
-        from bauiv1lib.connectivity import wait_for_connectivity
-
         # If we're still waiting for our master-server connection,
         # keep the user informed of this instead of rushing in and
         # failing immediately.
@@ -1575,9 +1580,6 @@ class AccountSettingsWindow(bui.MainWindow):
         bui.apptimer(0.1, bui.WeakCall(self._update))
 
     def _v2_proxy_sign_in_press(self) -> None:
-        # pylint: disable=cyclic-import
-        from bauiv1lib.connectivity import wait_for_connectivity
-
         # If we're still waiting for our master-server connection, keep
         # the user informed of this instead of rushing in and failing
         # immediately.

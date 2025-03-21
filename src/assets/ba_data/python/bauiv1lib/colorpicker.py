@@ -25,6 +25,7 @@ class ColorPicker(PopupWindow):
         self,
         parent: bui.Widget,
         position: tuple[float, float],
+        *,
         initial_color: Sequence[float] = (1.0, 1.0, 1.0),
         delegate: Any = None,
         scale: float | None = None,
@@ -184,6 +185,7 @@ class ColorPickerExact(PopupWindow):
         self,
         parent: bui.Widget,
         position: tuple[float, float],
+        *,
         initial_color: Sequence[float] = (1.0, 1.0, 1.0),
         delegate: Any = None,
         scale: float | None = None,
@@ -246,7 +248,6 @@ class ColorPickerExact(PopupWindow):
             editable=True,
             maxwidth=70,
             allow_clear_button=False,
-            force_internal_editing=True,
             glow_type='uniform',
         )
 

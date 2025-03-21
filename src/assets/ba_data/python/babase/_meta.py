@@ -279,7 +279,7 @@ class DirectoryScan:
                 except Exception:
                     logging.exception("metascan: Error scanning '%s'.", subpath)
 
-        # Sort our results
+        # Sort our results.
         for exportlist in self.results.exports.values():
             exportlist.sort()
 
@@ -327,7 +327,11 @@ class DirectoryScan:
         meta_lines = {
             lnum: l[1:].split()
             for lnum, l in enumerate(flines)
-            if '# ba_meta ' in l
+            # Do a simple 'in' check for speed but then make sure its
+            # also at the beginning of the line. This allows disabling
+            # meta-lines and avoids false positives from code that
+            # wrangles them.
+            if ('# ba_meta' in l and l.strip().startswith('# ba_meta '))
         }
         is_top_level = len(subpath.parts) <= 1
         required_api = self._get_api_requirement(
@@ -384,12 +388,16 @@ class DirectoryScan:
             # meta_lines is just anything containing '# ba_meta '; make sure
             # the ba_meta is in the right place.
             if mline[0] != 'ba_meta':
-                logging.warning(
-                    'metascan: %s:%d: malformed ba_meta statement.',
-                    subpath,
-                    lindex + 1,
-                )
-                self.results.announce_errors_occurred = True
+                # Make an exception for this specific file, otherwise we
+                # get lots of warnings about ba_meta showing up in weird
+                # places here.
+                if subpath.as_posix() != 'babase/_meta.py':
+                    logging.warning(
+                        'metascan: %s:%d: malformed ba_meta statement.',
+                        subpath,
+                        lindex + 1,
+                    )
+                    self.results.announce_errors_occurred = True
             elif (
                 len(mline) == 4 and mline[1] == 'require' and mline[2] == 'api'
             ):

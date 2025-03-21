@@ -1,6 +1,5 @@
 # Released under the MIT License. See LICENSE for details.
 #
-# pylint: disable=too-many-lines
 """Implements football games (both co-op and teams varieties)."""
 
 # ba_meta require api 9
@@ -332,7 +331,10 @@ class FootballTeamGame(bs.TeamGameActivity[Player, Team]):
         # Respawn dead flags.
         elif isinstance(msg, FlagDiedMessage):
             if not self.has_ended():
-                self._flag_respawn_timer = bs.Timer(3.0, self._spawn_flag)
+                if msg.self_kill:
+                    self._spawn_flag()
+                else:
+                    self._flag_respawn_timer = bs.Timer(3.0, self._spawn_flag)
                 self._flag_respawn_light = bs.NodeActor(
                     bs.newnode(
                         'light',
@@ -655,11 +657,6 @@ class FootballCoopGame(bs.CoopGameActivity[Player, Team]):
         for bot in bots:
             bot.target_flag = None
 
-        # If we're waiting on a continue, stop here so they don't keep scoring.
-        if self.is_waiting_for_continue():
-            self._bots.stop_moving()
-            return
-
         # If we've got a flag and no player are holding it, find the closest
         # bot to it, and make them the designated flag-bearer.
         assert self._flag is not None
@@ -816,14 +813,6 @@ class FootballCoopGame(bs.CoopGameActivity[Player, Team]):
         self._bots.final_celebrate()
         bs.timer(0.001, bs.Call(self.do_end, 'defeat'))
 
-    @override
-    def on_continue(self) -> None:
-        # Subtract one touchdown from the bots and get them moving again.
-        assert self._bot_team is not None
-        self._bot_team.score -= 7
-        self._bots.start_moving()
-        self.update_scores()
-
     def update_scores(self) -> None:
         """update scoreboard and check for winners"""
         # FIXME: tidy this up
@@ -838,7 +827,7 @@ class FootballCoopGame(bs.CoopGameActivity[Player, Team]):
                 if not have_scoring_team:
                     self._scoring_team = team
                     if team is self._bot_team:
-                        self.continue_or_end_game()
+                        self.end_game()
                     else:
                         bs.setmusic(bs.MusicType.VICTORY)
 
@@ -893,8 +882,7 @@ class FootballCoopGame(bs.CoopGameActivity[Player, Team]):
                         )
                         self._time_text_input.node.timemax = self._final_time_ms
 
-                        # FIXME: Does this still need to be deferred?
-                        bs.pushcall(bs.Call(self.do_end, 'victory'))
+                        self.do_end('victory')
 
     def do_end(self, outcome: str) -> None:
         """End the game with the specified outcome."""
@@ -945,7 +933,10 @@ class FootballCoopGame(bs.CoopGameActivity[Player, Team]):
         # Respawn dead flags.
         elif isinstance(msg, FlagDiedMessage):
             assert isinstance(msg.flag, FootballFlag)
-            msg.flag.respawn_timer = bs.Timer(3.0, self._spawn_flag)
+            if msg.self_kill:
+                self._spawn_flag()
+            else:
+                msg.flag.respawn_timer = bs.Timer(3.0, self._spawn_flag)
             self._flag_respawn_light = bs.NodeActor(
                 bs.newnode(
                     'light',
@@ -962,7 +953,7 @@ class FootballCoopGame(bs.CoopGameActivity[Player, Team]):
                 self._flag_respawn_light.node,
                 'intensity',
                 {0: 0, 0.25: 0.15, 0.5: 0},
-                loop=True,
+                loop=(not msg.self_kill),
             )
             bs.timer(3.0, self._flag_respawn_light.node.delete)
         else:

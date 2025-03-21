@@ -2,6 +2,8 @@
 
 #include "ballistica/base/graphics/support/camera.h"
 
+#include <algorithm>
+
 #include "ballistica/base/audio/audio.h"
 #include "ballistica/base/graphics/graphics.h"
 #include "ballistica/base/graphics/graphics_vr.h"
@@ -205,10 +207,9 @@ void Camera::UpdatePosition() {
             lr_jitter = 0.0f;
           } else {
             lr_jitter =
-                sinf(static_cast<float>(g_core->GetAppTimeMillisecs()) / 108.0f)
+                sinf(static_cast<float>(g_core->AppTimeMillisecs()) / 108.0f)
                     * 0.4f
-                + sinf(static_cast<float>(g_core->GetAppTimeMillisecs())
-                       / 268.0f)
+                + sinf(static_cast<float>(g_core->AppTimeMillisecs()) / 268.0f)
                       * 1.0f;
             lr_jitter *= 0.05f;
           }
@@ -889,7 +890,7 @@ void Camera::SetMode(CameraMode m) {
   if (mode_ != m) {
     mode_ = m;
     smooth_next_frame_ = false;
-    // last_mode_set_time_ = g_core->GetAppTimeMillisecs();
+    // last_mode_set_time_ = g_core->AppTimeMillisecs();
     // last_mode_set_time_ = time_;
     heading_ = kInitialHeading;
   }

@@ -2,7 +2,10 @@
 
 #include "ballistica/base/support/stdio_console.h"
 
-#include <cstring>
+#include <Python.h>
+
+#include <cstdio>
+#include <string>
 
 #include "ballistica/base/app_adapter/app_adapter.h"
 #include "ballistica/base/app_mode/app_mode.h"
@@ -12,7 +15,6 @@
 #include "ballistica/core/platform/core_platform.h"
 #include "ballistica/shared/foundation/event_loop.h"
 #include "ballistica/shared/python/python_command.h"
-#include "ballistica/shared/python/python_sys.h"
 
 namespace ballistica::base {
 
@@ -133,12 +135,12 @@ void StdioConsole::PushCommand_(const std::string& command) {
     // Eval this if possible (so we can possibly print return value).
     if (cmd.CanEval()) {
       auto obj = cmd.Eval(true, nullptr, nullptr);
-      if (obj.Exists()) {
+      if (obj.exists()) {
         // Print the value if we're running directly from a terminal
         // (or being run under the server-manager)
         if ((g_core->platform->is_stdin_a_terminal()
              || g_base->server_wrapper_managed())
-            && obj.Get() != Py_None) {
+            && obj.get() != Py_None) {
           printf("%s\n", obj.Repr().c_str());
           fflush(stdout);
         }

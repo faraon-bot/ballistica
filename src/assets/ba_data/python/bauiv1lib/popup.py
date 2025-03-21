@@ -23,6 +23,7 @@ class PopupWindow:
         position: tuple[float, float],
         size: tuple[float, float],
         scale: float = 1.0,
+        *,
         offset: tuple[float, float] = (0, 0),
         bg_color: tuple[float, float, float] = (0.35, 0.55, 0.15),
         focus_position: tuple[float, float] = (0, 0),
@@ -84,6 +85,10 @@ class PopupWindow:
             (focus_position[1] + focus_size[1] * 0.5) - (size[1] * 0.5)
         ) * scale
 
+        # NOTE: We do NOT need to suppress main-window-recreates here
+        # (like regular windows do) since we are always in the overlay
+        # stack and thus aren't affected by main-window recreation.
+
         self.root_widget = bui.containerwidget(
             transition='in_scale',
             scale=scale,
@@ -116,6 +121,7 @@ class PopupMenuWindow(PopupWindow):
         position: tuple[float, float],
         choices: Sequence[str],
         current_choice: str,
+        *,
         delegate: Any = None,
         width: float = 230.0,
         maxwidth: float | None = None,
@@ -201,6 +207,7 @@ class PopupMenuWindow(PopupWindow):
                 highlight=False,
                 color=(0.35, 0.55, 0.15),
                 size=(self._width - 40, self._height - 40),
+                border_opacity=0.5,
             )
             self._columnwidget = bui.columnwidget(
                 parent=self._scrollwidget, border=2, margin=0
@@ -301,6 +308,7 @@ class PopupMenu:
         parent: bui.Widget,
         position: tuple[float, float],
         choices: Sequence[str],
+        *,
         current_choice: str | None = None,
         on_value_change_call: Callable[[str], Any] | None = None,
         opening_call: Callable[[], Any] | None = None,

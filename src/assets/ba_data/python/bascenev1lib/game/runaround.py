@@ -487,9 +487,9 @@ class RunaroundGame(bs.CoopGameActivity[Player, Team]):
         assert bs.app.classic is not None
         uiscale = bs.app.ui_v1.uiscale
         l_offs = (
-            -80
+            -120
             if uiscale is bs.UIScale.SMALL
-            else -40 if uiscale is bs.UIScale.MEDIUM else 0
+            else -60 if uiscale is bs.UIScale.MEDIUM else -30
         )
 
         self._lives_bg = bs.NodeActor(
@@ -550,7 +550,7 @@ class RunaroundGame(bs.CoopGameActivity[Player, Team]):
             self._lives -= 1
             if self._lives == 0:
                 self._bots.stop_moving()
-                self.continue_or_end_game()
+                self.end_game()
 
             # Heartbeat behavior
             if self._lives < 5:
@@ -612,14 +612,6 @@ class RunaroundGame(bs.CoopGameActivity[Player, Team]):
                     (0.8, 0.8, 0.8, 1.0),
                 ),
             )
-
-    @override
-    def on_continue(self) -> None:
-        self._lives = 3
-        assert self._lives_text is not None
-        assert self._lives_text.node
-        self._lives_text.node.text = str(self._lives)
-        self._bots.start_moving()
 
     @override
     def spawn_player(self, player: Player) -> bs.Actor:

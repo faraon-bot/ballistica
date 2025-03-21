@@ -180,6 +180,7 @@ class AssetStager:
             self._parse_android_args(args)
         elif platform_arg.startswith('-win'):
             self.desc = 'windows'
+            self.asset_package_flavor = 'gui_desktop_v2dev1'
             self._parse_win_args(platform_arg, args)
         elif platform_arg == '-cmake':
             self.desc = 'cmake'
@@ -193,6 +194,7 @@ class AssetStager:
             self.desc = 'cmake modular'
             self.dst = args[-1]
             self.tex_suffix = '.dds'
+            self.asset_package_flavor = 'gui_desktop_v2dev1'
             self.include_python_dylib = True
             self.include_shell_executable = True
             self.executable_name = 'ballisticakit'
@@ -405,7 +407,11 @@ class AssetStager:
             toplevelfiles += [f'python{dbgsfx}.exe']
 
         # Include debug dlls so folks without msvc can run them.
-        if self.debug:
+        #
+        # UPDATE: No longer doing this as of build 22258. If people need
+        # to run debug builds they should do things the 'right' way and
+        # install VS.
+        if self.debug and bool(False):
             if self.win_platform == 'x64':
                 toplevelfiles += [
                     'msvcp140d.dll',

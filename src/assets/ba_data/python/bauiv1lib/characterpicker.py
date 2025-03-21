@@ -41,6 +41,7 @@ class CharacterPicker(PopupWindow):
         selected_character: str | None = None,
     ):
         # pylint: disable=too-many-locals
+        # pylint: disable=too-many-positional-arguments
         from bascenev1lib.actor import spazappearance
 
         assert bui.app.classic is not None
@@ -192,9 +193,7 @@ class CharacterPicker(PopupWindow):
         bui.widget(edit=btn, show_buffer_top=30, show_buffer_bottom=30)
 
     def _on_store_press(self) -> None:
-        from bauiv1lib.account import show_sign_in_prompt
-
-        # from bauiv1lib.store.browser import StoreBrowserWindow
+        from bauiv1lib.account.signin import show_sign_in_prompt
 
         plus = bui.app.plus
         assert plus is not None
@@ -207,15 +206,6 @@ class CharacterPicker(PopupWindow):
             self._delegate.on_character_picker_get_more_press()
 
         self._transition_out()
-
-        # bui.screenmessage('UNDER CONSTRUCTION')
-        # return
-
-        # StoreBrowserWindow(
-        #     modal=True,
-        #     show_tab=StoreBrowserWindow.TabID.CHARACTERS,
-        #     origin_widget=self._get_more_characters_button,
-        # )
 
     def _select_character(self, character: str) -> None:
         if self._delegate is not None:

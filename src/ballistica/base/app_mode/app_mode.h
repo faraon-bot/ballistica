@@ -3,6 +3,7 @@
 #ifndef BALLISTICA_BASE_APP_MODE_APP_MODE_H_
 #define BALLISTICA_BASE_APP_MODE_APP_MODE_H_
 
+#include <string>
 #include <vector>
 
 #include "ballistica/base/base.h"
@@ -103,6 +104,11 @@ class AppMode {
 
   /// Get a string for current ping display.
   virtual auto GetDisplayPing() -> std::optional<float>;
+
+  /// Return the offset used when drawing elements such as fps counters at
+  /// the bottom left of the screen. Should be used to avoid overlap with
+  /// icons or toolbars placed there by the app-mode.
+  virtual auto GetBottomLeftEdgeHeight() -> float;
 };
 
 }  // namespace ballistica::base

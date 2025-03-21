@@ -271,6 +271,7 @@ class ConfigKeyboardWindow(bui.MainWindow):
         button: str,
         scale: float = 1.0,
     ) -> None:
+        # pylint: disable=too-many-positional-arguments
         base_size = 79
         btn = bui.buttonwidget(
             parent=self._root_widget,
@@ -465,7 +466,9 @@ class AwaitKeyboardInputWindow(bui.Window):
         )
         bs.capture_keyboard_input(bui.WeakCall(self._button_callback))
 
+    @override
     def __del__(self) -> None:
+        super().__del__()
         bs.release_keyboard_input()
 
     def _die(self) -> None:

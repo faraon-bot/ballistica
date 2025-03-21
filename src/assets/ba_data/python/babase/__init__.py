@@ -2,12 +2,14 @@
 #
 """Common shared Ballistica components.
 
-For modding purposes, this package should generally not be used directly.
-Instead one should use purpose-built packages such as bascenev1 or bauiv1
-which themselves import various functionality from here and reexpose it in
-a more focused way.
+For modding purposes, this package should generally not be used
+directly. Instead one should use purpose-built packages such as
+:mod:`bascenev1` or :mod:`bauiv1` which themselves import various
+functionality from here and reexpose it in a more focused way.
 """
 # pylint: disable=redefined-builtin
+
+# ba_meta require api 9
 
 # The stuff we expose here at the top level is our 'public' api for use
 # from other modules/packages. Code *within* this package should import
@@ -17,12 +19,12 @@ a more focused way.
 
 from efro.util import set_canonical_module_names
 
-
 import _babase
 from _babase import (
     add_clean_frame_callback,
     allows_ticket_sales,
     android_get_external_files_dir,
+    app_instance_uuid,
     appname,
     appnameupper,
     apptime,
@@ -58,6 +60,8 @@ from _babase import (
     get_string_width,
     get_ui_scale,
     get_v1_cloud_log_file_path,
+    get_virtual_safe_area_size,
+    get_virtual_screen_size,
     getsimplesound,
     has_user_run_commands,
     have_chars,
@@ -99,6 +103,7 @@ from _babase import (
     set_analytics_screen,
     set_low_level_config_value,
     set_thread_name,
+    set_ui_account_state,
     set_ui_input_device,
     set_ui_scale,
     show_progress_bar,
@@ -108,8 +113,11 @@ from _babase import (
     SimpleSound,
     supports_max_fps,
     supports_vsync,
+    supports_unicode_display,
     unlock_all_input,
+    update_internal_logger_levels,
     user_agent_string,
+    user_ran_commands,
     Vec3,
     workspaces_in_use,
 )
@@ -128,7 +136,9 @@ from babase._apputils import (
     garbage_collect,
     get_remote_app_name,
     AppHealthMonitor,
+    utc_now_cloud,
 )
+from babase._cloud import CloudSubscription
 from babase._devconsole import (
     DevConsoleTab,
     DevConsoleTabEntry,
@@ -167,10 +177,9 @@ from babase._general import (
     get_type_name,
 )
 from babase._language import Lstr, LanguageSubsystem
+from babase._logging import balog, applog, lifecyclelog
 from babase._login import LoginAdapter, LoginInfo
 
-# noinspection PyProtectedMember
-# (PyCharm inspection bug?)
 from babase._mgen.enums import (
     Permission,
     SpecialChar,
@@ -197,7 +206,6 @@ __all__ = [
     'add_clean_frame_callback',
     'android_get_external_files_dir',
     'app',
-    'app',
     'App',
     'AppConfig',
     'AppHealthMonitor',
@@ -205,6 +213,8 @@ __all__ = [
     'AppIntentDefault',
     'AppIntentExec',
     'AppMode',
+    'app_instance_uuid',
+    'applog',
     'appname',
     'appnameupper',
     'AppModeSelector',
@@ -215,6 +225,7 @@ __all__ = [
     'apptimer',
     'AppTimer',
     'asset_loads_allowed',
+    'balog',
     'Call',
     'fullscreen_control_available',
     'fullscreen_control_get',
@@ -224,6 +235,7 @@ __all__ = [
     'clipboard_get_text',
     'clipboard_has_text',
     'clipboard_is_supported',
+    'CloudSubscription',
     'clipboard_set_text',
     'commit_app_config',
     'ContextCall',
@@ -258,6 +270,8 @@ __all__ = [
     'get_string_width',
     'get_type_name',
     'get_ui_scale',
+    'get_virtual_safe_area_size',
+    'get_virtual_screen_size',
     'get_v1_cloud_log_file_path',
     'getclass',
     'getsimplesound',
@@ -277,6 +291,7 @@ __all__ = [
     'is_point_in_box',
     'is_xcode_build',
     'LanguageSubsystem',
+    'lifecyclelog',
     'lock_all_input',
     'LoginAdapter',
     'LoginInfo',
@@ -327,6 +342,7 @@ __all__ = [
     'set_analytics_screen',
     'set_low_level_config_value',
     'set_thread_name',
+    'set_ui_account_state',
     'set_ui_input_device',
     'set_ui_scale',
     'show_progress_bar',
@@ -340,11 +356,15 @@ __all__ = [
     'StringEditSubsystem',
     'supports_max_fps',
     'supports_vsync',
+    'supports_unicode_display',
     'TeamNotFoundError',
     'timestring',
     'UIScale',
     'unlock_all_input',
+    'update_internal_logger_levels',
     'user_agent_string',
+    'user_ran_commands',
+    'utc_now_cloud',
     'utf8_all',
     'Vec3',
     'vec3validate',

@@ -47,11 +47,15 @@ class _HostLookupThread(Thread):
         try:
             import socket
 
-            result = [
+            aresult = [
                 item[-1][0]
                 for item in socket.getaddrinfo(self.name, self._port)
             ][0]
+            if isinstance(aresult, int):
+                raise RuntimeError('Unexpected getaddrinfo int result')
+            result = aresult
         except Exception:
+            # Hmm should we be logging this?
             result = None
         bui.pushcall(
             lambda: self._call(result, self._port), from_other_thread=True
@@ -114,6 +118,7 @@ class ManualGatherTab(GatherTab):
         region_left: float,
         region_bottom: float,
     ) -> bui.Widget:
+        # pylint: disable=too-many-positional-arguments
         c_width = region_width
         c_height = region_height - 20
 
@@ -350,7 +355,7 @@ class ManualGatherTab(GatherTab):
         )
         bui.widget(edit=self._check_button, up_widget=btn)
 
-    # Tab containing saved favorite addresses
+    # Tab containing saved favorite addresses.
     def _build_favorites_tab(
         self, region_width: float, region_height: float
     ) -> None:
@@ -359,7 +364,6 @@ class ManualGatherTab(GatherTab):
 
         assert bui.app.classic is not None
         uiscale = bui.app.ui_v1.uiscale
-        # self._width = 1240 if uiscale is bui.UIScale.SMALL else 1040
         self._width = region_width
         x_inset = 100 if uiscale is bui.UIScale.SMALL else 0
         self._height = (
@@ -870,6 +874,11 @@ class ManualGatherTab(GatherTab):
             config['Last Manual Party Connect Address'] = resolved_address
             config['Last Manual Party Connect Port'] = port
             config.commit()
+
+            # Store UI location to return to when done.
+            if bs.app.classic is not None:
+                bs.app.classic.save_ui_state()
+
             bs.connect_to_party(resolved_address, port=port)
 
     def _run_addr_fetch(self) -> None:

@@ -21,6 +21,7 @@ from efro.dataclassio._base import (
     Codec,
     _parse_annotated,
     EXTRA_ATTRS_ATTR,
+    LOSSY_ATTR,
     _is_valid_for_codec,
     _get_origin,
     SIMPLE_TYPES,
@@ -40,6 +41,7 @@ class _Outputter:
     def __init__(
         self,
         obj: Any,
+        *,
         create: bool,
         codec: Codec,
         coerce_to_float: bool,
@@ -59,6 +61,14 @@ class _Outputter:
         # mypy workaround - if we check 'obj' here it assumes the
         # isinstance call below fails.
         assert dataclasses.is_dataclass(self._obj)
+
+        # If this data has been flagged as lossy, don't allow outputting
+        # it. This hopefully helps avoid unintentional data
+        # modification/loss.
+        if getattr(obj, LOSSY_ATTR, False):
+            raise ValueError(
+                'Object has been flagged as lossy; output is disallowed.'
+            )
 
         # For special extended data types, call their 'will_output' callback.
         # FIXME - should probably move this into _process_dataclass so it
@@ -192,6 +202,7 @@ class _Outputter:
         value: Any,
         ioattrs: IOAttrs | None,
     ) -> Any:
+        # pylint: disable=too-many-positional-arguments
         # pylint: disable=too-many-return-statements
         # pylint: disable=too-many-branches
         # pylint: disable=too-many-statements
@@ -512,6 +523,7 @@ class _Outputter:
         value: dict,
         ioattrs: IOAttrs | None,
     ) -> Any:
+        # pylint: disable=too-many-positional-arguments
         # pylint: disable=too-many-branches
         if not isinstance(value, dict):
             raise TypeError(

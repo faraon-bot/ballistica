@@ -33,12 +33,32 @@ class Window:
     functionality.
     """
 
-    def __init__(self, root_widget: bauiv1.Widget, cleanupcheck: bool = True):
+    def __init__(
+        self,
+        root_widget: bauiv1.Widget,
+        cleanupcheck: bool = True,
+        prevent_main_window_auto_recreate: bool = True,
+    ):
         self._root_widget = root_widget
 
-        # Complain if we outlive our root widget.
+        # By default, the presence of any generic windows prevents the
+        # app from running its fancy main-window-auto-recreate mechanism
+        # on screen-resizes and whatnot. This avoids things like
+        # temporary popup windows getting stuck under auto-re-created
+        # main-windows.
+        self._prevent_main_window_auto_recreate = (
+            prevent_main_window_auto_recreate
+        )
+        if prevent_main_window_auto_recreate:
+            babase.app.ui_v1.window_auto_recreate_suppress_count += 1
+
+        # Generally we complain if we outlive our root widget.
         if cleanupcheck:
             uicleanupcheck(self, root_widget)
+
+    def __del__(self) -> None:
+        if self._prevent_main_window_auto_recreate:
+            babase.app.ui_v1.window_auto_recreate_suppress_count -= 1
 
     def get_root_widget(self) -> bauiv1.Widget:
         """Return the root widget."""
@@ -46,28 +66,54 @@ class Window:
 
 
 class MainWindow(Window):
-    """A special window that can be used as a main window."""
+    """A special type of window that can be set as 'main'.
+
+    The UI system has at most one main window at any given time.
+    MainWindows support high level functionality such as saving and
+    restoring states, allowing them to be automatically recreated when
+    navigating back from other locations or when something like ui-scale
+    changes.
+    """
 
     def __init__(
         self,
         root_widget: bauiv1.Widget,
+        *,
         transition: str | None,
         origin_widget: bauiv1.Widget | None,
         cleanupcheck: bool = True,
+        refresh_on_screen_size_changes: bool = False,
     ):
         """Create a MainWindow given a root widget and transition info.
 
-        Automatically handles in and out transitions on the provided widget,
-        so there is no need to set transitions when creating it.
+        Automatically handles in and out transitions on the provided
+        widget, so there is no need to set transitions when creating it.
         """
         # A back-state supplied by the ui system.
         self.main_window_back_state: MainWindowState | None = None
 
         self.main_window_is_top_level: bool = False
 
+        # Windows that size tailor themselves to exact screen dimensions
+        # can pass True for this. Generally this only applies to small
+        # ui scale and at larger scales windows simply fit in the
+        # virtual safe area.
+        self.refreshes_on_screen_size_changes = refresh_on_screen_size_changes
+
+        # Windows can be flagged as auxiliary when not related to the
+        # main UI task at hand. UI code may choose to handle auxiliary
+        # windows in special ways, such as by implicitly replacing
+        # existing auxiliary windows with new ones instead of keeping
+        # old ones as back targets.
+        self.main_window_is_auxiliary: bool = False
+
         self._main_window_transition = transition
         self._main_window_origin_widget = origin_widget
-        super().__init__(root_widget, cleanupcheck)
+        super().__init__(
+            root_widget,
+            cleanupcheck=cleanupcheck,
+            prevent_main_window_auto_recreate=False,
+        )
 
         scale_origin: tuple[float, float] | None
         if origin_widget is not None:
@@ -98,7 +144,7 @@ class MainWindow(Window):
 
         # Note: normally transition of None means instant, but we use
         # that to mean 'do the default' so we support a special
-        # 'instant' string..
+        # 'instant' string.
         if transition == 'instant':
             self._root_widget.delete()
         else:
@@ -139,15 +185,40 @@ class MainWindow(Window):
         if not self.main_window_has_control():
             return
 
+        uiv1 = babase.app.ui_v1
+
+        # Get the 'back' window coming in.
         if not self.main_window_is_top_level:
 
-            # Get the 'back' window coming in.
-            babase.app.ui_v1.auto_set_back_window(self)
+            back_state = self.main_window_back_state
+            if back_state is None:
+                raise RuntimeError(
+                    f'Main window {self} provides no back-state.'
+                )
 
+            # Valid states should have values here.
+            assert back_state.is_top_level is not None
+            assert back_state.is_auxiliary is not None
+            assert back_state.window_type is not None
+
+            backwin = back_state.create_window(transition='in_left')
+
+            uiv1.set_main_window(
+                backwin,
+                from_window=self,
+                is_back=True,
+                back_state=back_state,
+                suppress_warning=True,
+            )
+
+        # Transition ourself out.
         self.main_window_close()
 
     def main_window_replace(
-        self, new_window: MainWindow, back_state: MainWindowState | None = None
+        self,
+        new_window: MainWindow,
+        back_state: MainWindowState | None = None,
+        is_auxiliary: bool = False,
     ) -> None:
         """Replace ourself with a new MainWindow."""
 
@@ -177,6 +248,7 @@ class MainWindow(Window):
             new_window,
             from_window=self,
             back_state=back_state,
+            is_auxiliary=is_auxiliary,
             suppress_warning=True,
         )
 
@@ -188,12 +260,11 @@ class MainWindow(Window):
 
     def get_main_window_state(self) -> MainWindowState:
         """Return a WindowState to recreate this window, if supported."""
-        # TODO - change to NotImplementedError when moved to MainWindow.
-        raise RuntimeError('FIXME NOT IMPLEMENTED')
+        raise NotImplementedError()
 
 
 class MainWindowState:
-    """Persistent state for a specific main-window and its ancestors.
+    """Persistent state for a specific MainWindow.
 
     This allows MainWindows to be automatically recreated for back-button
     purposes, when switching app-modes, etc.
@@ -203,6 +274,9 @@ class MainWindowState:
         # The window that back/cancel navigation should take us to.
         self.parent: MainWindowState | None = None
         self.is_top_level: bool | None = None
+        self.is_auxiliary: bool | None = None
+        self.window_type: type[MainWindow] | None = None
+        self.selection: str | None = None
 
     def create_window(
         self,
@@ -314,10 +388,10 @@ def ui_upkeep() -> None:
                 print(
                     'WARNING:',
                     obj,
-                    'is still alive 5 second after its widget died;'
+                    'is still alive 5 second after its Widget died;'
                     ' you might have a memory leak. Look for circular'
-                    ' references or outside things referencing your window'
-                    ' instance. See efro.debug module'
+                    ' references or outside things referencing your Window'
+                    ' class instance. See efro.debug module'
                     ' for tools that can help debug this sort of thing.',
                 )
             else:
@@ -357,3 +431,13 @@ class TextWidgetStringEditAdapter(babase.StringEditAdapter):
     def _do_cancel(self) -> None:
         if self.widget:
             _bauiv1.textwidget(edit=self.widget, adapter_finished=True)
+
+
+class RootUIUpdatePause:
+    """Pauses updates to the root-ui while in existence."""
+
+    def __init__(self) -> None:
+        _bauiv1.root_ui_pause_updates()
+
+    def __del__(self) -> None:
+        _bauiv1.root_ui_resume_updates()

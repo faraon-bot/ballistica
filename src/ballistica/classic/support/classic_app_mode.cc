@@ -2,16 +2,25 @@
 
 #include "ballistica/classic/support/classic_app_mode.h"
 
+#include <algorithm>
+#include <cstdio>
+#include <string>
+#include <vector>
+
 #include "ballistica/base/audio/audio.h"
 #include "ballistica/base/audio/audio_source.h"
 #include "ballistica/base/graphics/graphics.h"
 #include "ballistica/base/graphics/support/frame_def.h"
+#include "ballistica/base/logic/logic.h"
 #include "ballistica/base/networking/network_writer.h"
-#include "ballistica/base/python/base_python.h"
+#include "ballistica/base/networking/networking.h"
 #include "ballistica/base/support/app_config.h"
 #include "ballistica/base/support/plus_soft.h"
+#include "ballistica/classic/classic.h"
+#include "ballistica/classic/python/classic_python.h"
+#include "ballistica/core/platform/core_platform.h"
 #include "ballistica/scene_v1/connection/connection_set.h"
-#include "ballistica/scene_v1/connection/connection_to_client_udp.h"
+#include "ballistica/scene_v1/connection/connection_to_client.h"
 #include "ballistica/scene_v1/connection/connection_to_host.h"
 #include "ballistica/scene_v1/node/globals_node.h"
 #include "ballistica/scene_v1/python/scene_v1_python.h"
@@ -21,28 +30,31 @@
 #include "ballistica/scene_v1/support/client_session_replay.h"
 #include "ballistica/scene_v1/support/host_session.h"
 #include "ballistica/shared/foundation/event_loop.h"
+#include "ballistica/shared/foundation/macros.h"
 #include "ballistica/shared/generic/json.h"
 #include "ballistica/shared/generic/utils.h"
+#include "ballistica/shared/networking/sockaddr.h"
 #include "ballistica/ui_v1/ui_v1.h"
+#include "ballistica/ui_v1/widget/root_widget.h"
 
 namespace ballistica::classic {
 
-const int kMaxChatMessages = 40;
+const int kMaxChatMessages{40};
 
 /// How long a kick vote lasts.
-const int kKickVoteDuration = 30000;
+const int kKickVoteDuration{30000};
 
 /// How long everyone has to wait to start a new kick vote after a failed one.
-const int kKickVoteFailRetryDelay = 60000;
+const int kKickVoteFailRetryDelay{60000};
 
 /// Extra delay for the initiator of a failed vote.
-const int kKickVoteFailRetryDelayInitiatorExtra = 120000;
+const int kKickVoteFailRetryDelayInitiatorExtra{120000};
 
 // Minimum clients that must be present for a kick vote to count. (for
 // non-headless builds we require more votes since the host doesn't count
 // but may be playing (in a 2on2 with 3 clients, don't want 2 clients able
 // to kick).
-const int kKickVoteMinimumClients = (g_buildconfig.headless_build() ? 3 : 4);
+const int kKickVoteMinimumClients{g_buildconfig.headless_build() ? 3 : 4};
 
 struct ClassicAppMode::ScanResultsEntryPriv_ {
   scene_v1::PlayerSpec player_spec;
@@ -65,7 +77,7 @@ base::InputDeviceDelegate* ClassicAppMode::CreateInputDeviceDelegate(
 }
 
 // Go with 5 minute ban.
-const int kKickBanSeconds = 5 * 60;
+const int kKickBanSeconds{5 * 60};
 
 bool ClassicAppMode::IsInMainMenu() const {
   scene_v1::HostSession* hostsession =
@@ -88,10 +100,11 @@ void ClassicAppMode::OnActivate() {
 
   Reset_();
 
-  // To set initial states, explicitly fire some of our 'On-Foo-Changed'
-  // callbacks.
+  // Explicitly fire some of our 'On-Foo-Changed' callbacks to set initial
+  // states.
   DoApplyAppConfig();
   LanguageChanged();
+  OnGameRosterChanged_();
 }
 
 void ClassicAppMode::OnAppStart() { assert(g_base->InLogicThread()); }
@@ -115,15 +128,26 @@ void ClassicAppMode::Reset_() {
   assert(g_base);
   assert(g_base->InLogicThread());
 
+  // Let our Python delegate know we're gonna do a reset so it can save any
+  // state it needs to or whatnot.
+  // HMM; should we make resets an official part of AppModes or something?
+  PythonRef result = g_classic->python->objs()
+                         .Get(ClassicPython::ObjID::kOnEngineWillResetCall)
+                         .Call();
+  if (!result.exists()) {
+    throw Exception("Error calling kOnEngineWillResetCall.");
+  }
+
   // Tear down any existing session.
   foreground_session_.Clear();
   PruneSessions_();
 
   // If all is well our sessions should all be dead at this point.
   if (g_scene_v1->session_count != 0) {
-    Log(LogLevel::kError, "SceneV1 session count is non-zero ("
-                              + std::to_string(g_scene_v1->session_count)
-                              + ") on ClassicAppMode::Reset_().");
+    g_core->Log(LogName::kBa, LogLevel::kError,
+                "SceneV1 session count is non-zero ("
+                    + std::to_string(g_scene_v1->session_count)
+                    + ") on ClassicAppMode::Reset_().");
   }
 
   // Reset the engine itself to a default state.
@@ -131,11 +155,43 @@ void ClassicAppMode::Reset_() {
 
   // Import UIV1 and wire it up for UI duty.
   if (!g_core->HeadlessMode()) {
-    g_base->ui->set_ui_delegate(ui_v1::UIV1FeatureSet::Import());
+    uiv1_ = ui_v1::UIV1FeatureSet::Import();
+    g_base->ui->SetUIDelegate(uiv1_);
+
+    // At this point uiv1 is in a reset-to-default state. Now plug in our
+    // current values for everything.
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->SetTicketsMeterValue(root_ui_tickets_meter_value_);
+      root_widget->SetTokensMeterValue(root_ui_tokens_meter_value_,
+                                       root_ui_gold_pass_);
+      root_widget->SetLeagueRankValues(
+          root_ui_league_type_, root_ui_league_number_, root_ui_league_rank_);
+      root_widget->SetAchievementPercentText(root_ui_achievement_percent_text_);
+      root_widget->SetLevelText(root_ui_level_text_);
+      root_widget->SetXPText(root_ui_xp_text_);
+      root_widget->SetInboxCount(root_ui_inbox_count_,
+                                 root_ui_inbox_count_is_max_);
+      root_widget->SetChests(
+          root_ui_chest_0_appearance_, root_ui_chest_1_appearance_,
+          root_ui_chest_2_appearance_, root_ui_chest_3_appearance_,
+          root_ui_chest_0_unlock_time_, root_ui_chest_1_unlock_time_,
+          root_ui_chest_2_unlock_time_, root_ui_chest_3_unlock_time_,
+          root_ui_chest_0_ad_allow_time_, root_ui_chest_1_ad_allow_time_,
+          root_ui_chest_2_ad_allow_time_, root_ui_chest_3_ad_allow_time_);
+      root_widget->SetHaveLiveValues(root_ui_have_live_values_);
+    }
   }
 
   // Fade in if we currently aren't.
   g_base->graphics->FadeScreen(true, 250, nullptr);
+
+  // Let our Python delegate know we're done doing our reset.
+  result = g_classic->python->objs()
+               .Get(ClassicPython::ObjID::kOnEngineDidResetCall)
+               .Call();
+  if (!result.exists()) {
+    throw Exception("Error calling kOnEngineDidResetCall.");
+  }
 }
 
 // Note: for now we're making our host-scan network calls directly from the
@@ -152,22 +208,23 @@ void ClassicAppMode::HostScanCycle() {
     scan_socket_ = socket(AF_INET, SOCK_DGRAM, 0);
 
     if (scan_socket_ == -1) {
-      Log(LogLevel::kError, "Error opening scan socket: "
-                                + g_core->platform->GetSocketErrorString()
-                                + ".");
+      g_core->Log(LogName::kBaNetworking, LogLevel::kError,
+                  "Error opening scan socket: "
+                      + g_core->platform->GetSocketErrorString() + ".");
       return;
     }
 
     // Since this guy lives in the logic-thread we need it to not block.
     if (!g_core->platform->SetSocketNonBlocking(scan_socket_)) {
-      Log(LogLevel::kError, "Error setting socket non-blocking.");
+      g_core->Log(LogName::kBaNetworking, LogLevel::kError,
+                  "Error setting socket non-blocking.");
       g_core->platform->CloseSocket(scan_socket_);
       scan_socket_ = -1;
       return;
     }
 
     // Bind to whatever.
-    struct sockaddr_in serv_addr {};
+    struct sockaddr_in serv_addr{};
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);  // NOLINT
@@ -175,9 +232,9 @@ void ClassicAppMode::HostScanCycle() {
     int result =
         ::bind(scan_socket_, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
     if (result == 1) {
-      Log(LogLevel::kError,
-          "Error binding socket: " + g_core->platform->GetSocketErrorString()
-              + ".");
+      g_core->Log(LogName::kBaNetworking, LogLevel::kError,
+                  "Error binding socket: "
+                      + g_core->platform->GetSocketErrorString() + ".");
       g_core->platform->CloseSocket(scan_socket_);
       scan_socket_ = -1;
       return;
@@ -189,9 +246,9 @@ void ClassicAppMode::HostScanCycle() {
                         sizeof(op_val));
 
     if (result != 0) {
-      Log(LogLevel::kError, "Error enabling broadcast for scan-socket: "
-                                + g_core->platform->GetSocketErrorString()
-                                + ".");
+      g_core->Log(LogName::kBaNetworking, LogLevel::kError,
+                  "Error enabling broadcast for scan-socket: "
+                      + g_core->platform->GetSocketErrorString() + ".");
       g_core->platform->CloseSocket(scan_socket_);
       scan_socket_ = -1;
       return;
@@ -223,8 +280,9 @@ void ClassicAppMode::HostScanCycle() {
         case ENETUNREACH:
           break;
         default:
-          Log(LogLevel::kError, "Error on scanSocket sendto: "
-                                    + g_core->platform->GetSocketErrorString());
+          g_core->Log(LogName::kBaNetworking, LogLevel::kError,
+                      "Error on scan-socket sendto: "
+                          + g_core->platform->GetSocketErrorString());
       }
     }
   }
@@ -246,8 +304,9 @@ void ClassicAppMode::HostScanCycle() {
         case EWOULDBLOCK:
           break;
         default:
-          Log(LogLevel::kError, "Error: recvfrom error: "
-                                    + g_core->platform->GetSocketErrorString());
+          g_core->Log(LogName::kBaNetworking, LogLevel::kError,
+                      "Error: recvfrom error: "
+                          + g_core->platform->GetSocketErrorString());
           break;
       }
       break;
@@ -298,18 +357,18 @@ void ClassicAppMode::HostScanCycle() {
                     &((reinterpret_cast<sockaddr_in*>(&from))->sin_addr),
                     buffer2, sizeof(buffer2));
                 entry.last_query_id = query_id;
-                entry.last_contact_time = g_core->GetAppTimeMillisecs();
+                entry.last_contact_time = g_core->AppTimeMillisecs();
               }
             }
             PruneScanResults_();
           }
         } else {
-          Log(LogLevel::kError,
-              "Got invalid BA_PACKET_HOST_QUERY_RESPONSE packet");
+          g_core->Log(LogName::kBaNetworking, LogLevel::kError,
+                      "Got invalid BA_PACKET_HOST_QUERY_RESPONSE packet");
         }
       } else {
-        Log(LogLevel::kError,
-            "Got invalid BA_PACKET_HOST_QUERY_RESPONSE packet");
+        g_core->Log(LogName::kBaNetworking, LogLevel::kError,
+                    "Got invalid BA_PACKET_HOST_QUERY_RESPONSE packet");
       }
     }
   }
@@ -323,7 +382,7 @@ void ClassicAppMode::EndHostScanning() {
 }
 
 void ClassicAppMode::PruneScanResults_() {
-  millisecs_t t = g_core->GetAppTimeMillisecs();
+  millisecs_t t = g_core->AppTimeMillisecs();
   auto i = scan_results_.begin();
   while (i != scan_results_.end()) {
     auto i_next = i;
@@ -381,8 +440,8 @@ bool ClassicAppMode::HasConnectionToClients() const {
 auto ClassicAppMode::GetActiveOrWarn() -> ClassicAppMode* {
   auto* val{GetActive()};
   if (val == nullptr) {
-    Log(LogLevel::kWarning,
-        "Attempting to access ClassicAppMode while it is inactive.");
+    g_core->Log(LogName::kBa, LogLevel::kWarning,
+                "Attempting to access ClassicAppMode while it is inactive.");
   }
   return val;
 }
@@ -441,10 +500,17 @@ auto ClassicAppMode::HandleJSONPing(const std::string& data_str)
 }
 
 void ClassicAppMode::SetGameRoster(cJSON* r) {
+  assert(g_base->InLogicThread());
   if (game_roster_ != nullptr) {
     cJSON_Delete(game_roster_);
   }
   game_roster_ = r;
+  OnGameRosterChanged_();
+}
+
+void ClassicAppMode::OnGameRosterChanged_() {
+  assert(g_base->InLogicThread());
+  g_base->ui->SetSquadSizeLabel(GetPartySize());
 }
 
 auto ClassicAppMode::GetPartySize() const -> int {
@@ -456,7 +522,7 @@ auto ClassicAppMode::GetPartySize() const -> int {
 auto ClassicAppMode::GetHeadlessNextDisplayTimeStep() -> microsecs_t {
   std::optional<microsecs_t> min_time_to_next;
   for (auto&& i : sessions_) {
-    if (!i.Exists()) {
+    if (!i.exists()) {
       continue;
     }
     auto this_time_to_next = i->TimeToNextEvent();
@@ -475,8 +541,8 @@ auto ClassicAppMode::GetHeadlessNextDisplayTimeStep() -> microsecs_t {
 void ClassicAppMode::StepDisplayTime() {
   assert(g_base->InLogicThread());
 
-  auto startms{core::CorePlatform::GetCurrentMillisecs()};
-  millisecs_t app_time = g_core->GetAppTimeMillisecs();
+  auto startms{core::CorePlatform::TimeMonotonicMillisecs()};
+  millisecs_t app_time = g_core->AppTimeMillisecs();
   g_core->platform->SetDebugKey("LastUpdateTime", std::to_string(startms));
   in_update_ = true;
 
@@ -501,6 +567,16 @@ void ClassicAppMode::StepDisplayTime() {
   }
   legacy_display_time_millisecs_prev_ = legacy_display_time_millisecs_;
 
+  // Special case: due to things like app-mode-switches our
+  // prev-display-time-millisecs may be way far in the past which can give
+  // us huge step values. So if this value is much bigger than the direct
+  // conversion of display_time_increment, clamp it.
+  auto milliseconds_inc_max =
+      static_cast<int>(g_base->logic->display_time_increment() * 1000.0 * 1.5);
+  if (legacy_display_time_millisecs_inc > milliseconds_inc_max) {
+    legacy_display_time_millisecs_inc = milliseconds_inc_max;
+  }
+
   UpdateKickVote_();
 
   HandleQuitOnIdle_();
@@ -522,7 +598,7 @@ void ClassicAppMode::StepDisplayTime() {
 
   // Update all of our sessions.
   for (auto&& i : sessions_) {
-    if (!i.Exists()) {
+    if (!i.exists()) {
       continue;
     }
     // Pass our old int milliseconds time vals for legacy purposes
@@ -541,12 +617,13 @@ void ClassicAppMode::StepDisplayTime() {
   // Report excessively long updates.
   if (g_core->core_config().debug_timing
       && app_time >= next_long_update_report_time_) {
-    auto duration{core::CorePlatform::GetCurrentMillisecs() - startms};
+    auto duration{core::CorePlatform::TimeMonotonicMillisecs() - startms};
 
     // Complain when our full update takes longer than 1/60th second.
     if (duration > (1000 / 60)) {
-      Log(LogLevel::kInfo, "Logic::StepDisplayTime update took too long ("
-                               + std::to_string(duration) + " ms).");
+      g_core->Log(LogName::kBa, LogLevel::kInfo,
+                  "Logic::StepDisplayTime update took too long ("
+                      + std::to_string(duration) + " ms).");
 
       // Limit these if we want (not doing so for now).
       next_long_update_report_time_ = app_time;
@@ -610,7 +687,7 @@ void ClassicAppMode::UpdateGameRoster() {
       for (auto&& p : hs->players()) {
         auto* delegate = p->input_device_delegate();
         if (delegate == nullptr || !delegate->InputDeviceExists()) {
-          BA_LOG_ONCE(LogLevel::kWarning,
+          BA_LOG_ONCE(LogName::kBa, LogLevel::kWarning,
                       "Found player with no/invalid input-device-delegate in "
                       "UpdateGameRoster.");
           continue;
@@ -665,7 +742,7 @@ void ClassicAppMode::UpdateGameRoster() {
                 client_delegate->connection_to_client();
 
             // Add some basic info for each remote player.
-            if (ctc != nullptr && ctc == i.second.Get()) {
+            if (ctc != nullptr && ctc == i.second.get()) {
               cJSON* player_dict = cJSON_CreateObject();
               cJSON_AddItemToObject(player_dict, "n",
                                     cJSON_CreateString(p->GetName().c_str()));
@@ -687,6 +764,8 @@ void ClassicAppMode::UpdateGameRoster() {
     }
   }
 
+  OnGameRosterChanged_();
+
   // Keep the Python layer informed on our number of connections; it may want
   // to pass the info along to the master server if we're hosting a public
   // party.
@@ -700,15 +779,15 @@ void ClassicAppMode::UpdateKickVote_() {
   if (!kick_vote_in_progress_) {
     return;
   }
-  scene_v1::ConnectionToClient* kick_vote_starter = kick_vote_starter_.Get();
-  scene_v1::ConnectionToClient* kick_vote_target = kick_vote_target_.Get();
+  scene_v1::ConnectionToClient* kick_vote_starter = kick_vote_starter_.get();
+  scene_v1::ConnectionToClient* kick_vote_target = kick_vote_target_.get();
 
   // If the target is no longer with us, silently end.
   if (kick_vote_target == nullptr) {
     kick_vote_in_progress_ = false;
     return;
   }
-  millisecs_t current_time{g_core->GetAppTimeMillisecs()};
+  millisecs_t current_time{g_core->AppTimeMillisecs()};
   int total_client_count = 0;
   int yes_votes = 0;
   int no_votes = 0;
@@ -805,7 +884,7 @@ void ClassicAppMode::UpdateKickVote_() {
 void ClassicAppMode::StartKickVote(scene_v1::ConnectionToClient* starter,
                                    scene_v1::ConnectionToClient* target) {
   // Restrict votes per client.
-  millisecs_t current_time = g_core->GetAppTimeMillisecs();
+  millisecs_t current_time = g_core->AppTimeMillisecs();
 
   if (starter == target) {
     // Don't let anyone kick themselves.
@@ -903,7 +982,7 @@ void ClassicAppMode::StartKickVote(scene_v1::ConnectionToClient* starter,
 
 void ClassicAppMode::SetForegroundScene(scene_v1::Scene* sg) {
   assert(g_base->InLogicThread());
-  if (foreground_scene_.Get() != sg) {
+  if (foreground_scene_.get() != sg) {
     foreground_scene_ = sg;
 
     // If this scene has a globals-node, put it in charge of stuff.
@@ -940,7 +1019,7 @@ auto ClassicAppMode::GetNetworkDebugString() -> std::string {
   } else {
     int connected_count = 0;
     for (auto&& i : connections()->connections_to_clients()) {
-      scene_v1::ConnectionToClient* client = i.second.Get();
+      scene_v1::ConnectionToClient* client = i.second.get();
       if (client->can_communicate()) {
         show = true;
         connected_count += 1;
@@ -1024,7 +1103,7 @@ void ClassicAppMode::LaunchHostSession(PyObject* session_type_obj,
   } catch (const std::exception& e) {
     // If it failed, restore the previous session context and re-throw the
     // exception.
-    SetForegroundSession(old_foreground_session.Get());
+    SetForegroundSession(old_foreground_session.get());
     throw Exception(std::string("HostSession failed: ") + e.what());
   }
 }
@@ -1056,7 +1135,7 @@ void ClassicAppMode::LaunchReplaySession(const std::string& file_name) {
   } catch (const std::exception& e) {
     // If it failed, restore the previous current session and re-throw the
     // exception.
-    SetForegroundSession(old_foreground_session.Get());
+    SetForegroundSession(old_foreground_session.get());
     throw Exception(std::string("HostSession failed: ") + e.what());
   }
 }
@@ -1086,7 +1165,7 @@ void ClassicAppMode::LaunchClientSession() {
     assert(foreground_session_ == s);
   } catch (const std::exception& e) {
     // If it failed, restore the previous current session and re-throw.
-    SetForegroundSession(old_foreground_session.Get());
+    SetForegroundSession(old_foreground_session.get());
     throw Exception(std::string("HostSession failed: ") + e.what());
   }
 }
@@ -1176,7 +1255,7 @@ void ClassicAppMode::LocalDisplayChatMessage(
 void ClassicAppMode::DoApplyAppConfig() {
   // Kick-idle-players setting (hmm is this still relevant?).
   auto* host_session =
-      dynamic_cast<scene_v1::HostSession*>(foreground_session_.Get());
+      dynamic_cast<scene_v1::HostSession*>(foreground_session_.get());
   kick_idle_players_ =
       g_base->app_config->Resolve(base::AppConfig::BoolID::kKickIdlePlayers);
   if (host_session) {
@@ -1193,14 +1272,14 @@ void ClassicAppMode::DoApplyAppConfig() {
 void ClassicAppMode::PruneSessions_() {
   bool have_dead_session = false;
   for (auto&& i : sessions_) {
-    if (i.Exists()) {
+    if (i.exists()) {
       // If this session is no longer foreground and is ready to die, kill it.
-      if (i.Exists() && i.Get() != foreground_session_.Get()) {
+      if (i.exists() && i.get() != foreground_session_.get()) {
         try {
           i.Clear();
         } catch (const std::exception& e) {
-          Log(LogLevel::kError,
-              "Exception killing Session: " + std::string(e.what()));
+          g_core->Log(LogName::kBa, LogLevel::kError,
+                      "Exception killing Session: " + std::string(e.what()));
         }
         have_dead_session = true;
       }
@@ -1211,7 +1290,7 @@ void ClassicAppMode::PruneSessions_() {
   if (have_dead_session) {
     std::vector<Object::Ref<scene_v1::Session> > live_list;
     for (auto&& i : sessions_) {
-      if (i.Exists()) {
+      if (i.exists()) {
         live_list.push_back(i);
       }
     }
@@ -1249,7 +1328,7 @@ void ClassicAppMode::SetPublicPartyEnabled(bool val) {
     return;
   }
   public_party_enabled_ = val;
-  g_base->plus()->PushPublicPartyState();
+  g_base->Plus()->PushPublicPartyState();
 }
 
 void ClassicAppMode::SetPublicPartySize(int count) {
@@ -1262,7 +1341,7 @@ void ClassicAppMode::SetPublicPartySize(int count) {
   // Push our new state to the server *ONLY* if public-party is turned on
   // (wasteful otherwise).
   if (public_party_enabled_) {
-    g_base->plus()->PushPublicPartyState();
+    g_base->Plus()->PushPublicPartyState();
   }
 }
 
@@ -1276,7 +1355,7 @@ void ClassicAppMode::SetPublicPartyQueueEnabled(bool enabled) {
   // Push our new state to the server *ONLY* if public-party is turned on
   // (wasteful otherwise).
   if (public_party_enabled_) {
-    g_base->plus()->PushPublicPartyState();
+    g_base->Plus()->PushPublicPartyState();
   }
 }
 
@@ -1290,7 +1369,7 @@ void ClassicAppMode::SetPublicPartyMaxSize(int count) {
   // Push our new state to the server *ONLY* if public-party is turned on
   // (wasteful otherwise).
   if (public_party_enabled_) {
-    g_base->plus()->PushPublicPartyState();
+    g_base->Plus()->PushPublicPartyState();
   }
 }
 
@@ -1304,7 +1383,7 @@ void ClassicAppMode::SetPublicPartyName(const std::string& name) {
   // Push our new state to the server *ONLY* if public-party is turned on
   // (wasteful otherwise).
   if (public_party_enabled_) {
-    g_base->plus()->PushPublicPartyState();
+    g_base->Plus()->PushPublicPartyState();
   }
 }
 
@@ -1318,7 +1397,7 @@ void ClassicAppMode::SetPublicPartyStatsURL(const std::string& url) {
   // Push our new state to the server *ONLY* if public-party is turned on
   // (wasteful otherwise).
   if (public_party_enabled_) {
-    g_base->plus()->PushPublicPartyState();
+    g_base->Plus()->PushPublicPartyState();
   }
 }
 
@@ -1332,7 +1411,7 @@ void ClassicAppMode::SetPublicPartyPlayerCount(int count) {
   // Push our new state to the server *ONLY* if public-party is turned on
   // (wasteful otherwise).
   if (public_party_enabled_) {
-    g_base->plus()->PushPublicPartyState();
+    g_base->Plus()->PushPublicPartyState();
   }
 }
 
@@ -1359,7 +1438,7 @@ auto ClassicAppMode::ShouldAnnouncePartyJoinsAndLeaves() -> bool {
 }
 
 auto ClassicAppMode::IsPlayerBanned(const scene_v1::PlayerSpec& spec) -> bool {
-  millisecs_t current_time = g_core->GetAppTimeMillisecs();
+  millisecs_t current_time = g_core->AppTimeMillisecs();
 
   // Now is a good time to prune no-longer-banned specs.
   while (!banned_players_.empty()
@@ -1377,7 +1456,7 @@ auto ClassicAppMode::IsPlayerBanned(const scene_v1::PlayerSpec& spec) -> bool {
 
 void ClassicAppMode::BanPlayer(const scene_v1::PlayerSpec& spec,
                                millisecs_t duration) {
-  banned_players_.emplace_back(g_core->GetAppTimeMillisecs() + duration, spec);
+  banned_players_.emplace_back(g_core->AppTimeMillisecs() + duration, spec);
 }
 
 void ClassicAppMode::HandleQuitOnIdle_() {
@@ -1387,7 +1466,8 @@ void ClassicAppMode::HandleQuitOnIdle_() {
     if (!idle_exiting_ && idle_seconds > (idle_exit_minutes_.value() * 60.0f)) {
       idle_exiting_ = true;
 
-      Log(LogLevel::kInfo, "Quitting due to reaching idle-exit-minutes.");
+      g_core->Log(LogName::kBa, LogLevel::kInfo,
+                  "Quitting due to reaching idle-exit-minutes.");
       g_base->logic->event_loop()->PushCall([] { g_base->logic->Shutdown(); });
     }
   }
@@ -1418,8 +1498,8 @@ void ClassicAppMode::SetInternalMusic(base::SoundAsset* music, float volume,
 void ClassicAppMode::HandleGameQuery(const char* buffer, size_t size,
                                      sockaddr_storage* from) {
   if (size == 5) {
-    // If we're already in a party, don't advertise since they
-    // wouldn't be able to join us anyway.
+    // If we're already in a party, don't advertise since they wouldn't be
+    // able to join us anyway.
     if (g_base->app_mode()->HasConnectionToHost()) {
       return;
     }
@@ -1428,16 +1508,15 @@ void ClassicAppMode::HandleGameQuery(const char* buffer, size_t size,
     uint32_t query_id;
     memcpy(&query_id, buffer + 1, 4);
 
-    // Ship them a response packet containing the query id,
-    // our protocol version, our unique-app-instance-id, and our
-    // player_spec.
+    // Ship them a response packet containing the query id, our protocol
+    // version, our unique-app-instance-id, and our player_spec.
     char msg[400];
 
     std::string usid = g_base->GetAppInstanceUUID();
     std::string player_spec_string;
 
-    // If we're signed in, send our account spec.
-    // Otherwise just send a dummy made with our device name.
+    // If we're signed in, send our account spec. Otherwise just send a
+    // dummy made with our device name.
     player_spec_string =
         scene_v1::PlayerSpec::GetAccountPlayerSpec().GetSpecString();
 
@@ -1446,7 +1525,8 @@ void ClassicAppMode::HandleGameQuery(const char* buffer, size_t size,
 
     BA_PRECONDITION_FATAL(!usid.empty());
     if (usid.size() > 100) {
-      Log(LogLevel::kError, "had to truncate session-id; shouldn't happen");
+      g_core->Log(LogName::kBa, LogLevel::kError,
+                  "had to truncate session-id; shouldn't happen");
       usid.resize(100);
     }
     if (usid.empty()) {
@@ -1472,8 +1552,10 @@ void ClassicAppMode::HandleGameQuery(const char* buffer, size_t size,
     g_base->network_writer->PushSendToCall(msg_buffer, SockAddr(*from));
 
   } else {
-    Log(LogLevel::kError, "Got invalid game-query packet of len "
-                              + std::to_string(size) + "; expected 5.");
+    // Log invalid packets only once to avoid weaponized log spam.
+    BA_LOG_ONCE(LogName::kBaNetworking, LogLevel::kError,
+                "Got invalid game-query packet of len " + std::to_string(size)
+                    + "; expected 5.");
   }
 }
 
@@ -1487,8 +1569,313 @@ void ClassicAppMode::RunMainMenu() {
       g_scene_v1->python->objs()
           .Get(scene_v1::SceneV1Python::ObjID::kLaunchMainMenuSessionCall)
           .Call();
-  if (!result.Exists()) {
+  if (!result.exists()) {
     throw Exception("Error running scene_v1 main menu.");
+  }
+}
+
+void ClassicAppMode::SetRootUITicketsMeterValue(int value) {
+  assert(g_base->InLogicThread());
+  if (value == root_ui_tickets_meter_value_) {
+    return;
+  }
+  // Store the value.
+  root_ui_tickets_meter_value_ = value;
+
+  // Apply it to any existing UI.
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->SetTicketsMeterValue(root_ui_tickets_meter_value_);
+    }
+  }
+}
+
+void ClassicAppMode::SetRootUITokensMeterValue(int value) {
+  assert(g_base->InLogicThread());
+  if (value == root_ui_tokens_meter_value_) {
+    return;
+  }
+  // Store the value.
+  root_ui_tokens_meter_value_ = value;
+
+  // Apply it to any existing UI.
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->SetTokensMeterValue(root_ui_tokens_meter_value_,
+                                       root_ui_gold_pass_);
+    }
+  }
+}
+
+void ClassicAppMode::SetRootUILeagueValues(const std::string league_type,
+                                           int league_number, int rank) {
+  assert(g_base->InLogicThread());
+
+  // Filter out redundant sets.
+  if (league_type == root_ui_league_type_
+      && league_number == root_ui_league_number_
+      && rank == root_ui_league_rank_) {
+    return;
+  }
+
+  // Store new values.
+  root_ui_league_type_ = league_type;
+  root_ui_league_number_ = league_number;
+  root_ui_league_rank_ = rank;
+
+  // Apply to any existing UI.
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->SetLeagueRankValues(
+          root_ui_league_type_, root_ui_league_number_, root_ui_league_rank_);
+    }
+  }
+}
+
+void ClassicAppMode::GetAccountDisplayState(std::string* league_type,
+                                            int* league_number,
+                                            int* league_rank, int* inbox_count,
+                                            bool* inbox_count_is_max) {
+  assert(g_base->InLogicThread());
+  assert(league_type && league_number && league_rank && inbox_count
+         && inbox_count_is_max);
+
+  // What we're asking for here is the current *displayed* values in the ui
+  // (the latest values we have provided to them may not be visible yet due
+  // to the meter being offscreen/etc.)
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      *league_type = root_widget->league_type_vis_value();
+      *league_number = root_widget->league_number_vis_value();
+      *league_rank = root_widget->league_rank_vis_value();
+      *inbox_count = root_widget->inbox_count_vis_value();
+      *inbox_count_is_max = root_widget->inbox_count_is_max_vis_value();
+      return;
+    }
+  }
+
+  // Unset.
+  *league_type = "";
+  *league_number = -1;
+  *league_rank = -1;
+  *inbox_count = -1;
+  *inbox_count_is_max = false;
+}
+
+void ClassicAppMode::SetAccountDisplayState(const std::string& league_type,
+                                            int league_number, int league_rank,
+                                            int inbox_count,
+                                            bool inbox_count_is_max) {
+  assert(g_base->InLogicThread());
+
+  // Apply it to any existing UI.
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      // Ask the root widget to restore these vis values and kick off anims
+      // to the current actual values or whatnot if applicable.
+      root_widget->RestoreAccountDisplayState(league_type, league_number,
+                                              league_rank, inbox_count,
+                                              inbox_count_is_max);
+    }
+  }
+}
+
+void ClassicAppMode::SetRootUIAchievementsPercentText(const std::string text) {
+  assert(g_base->InLogicThread());
+  if (text == root_ui_achievement_percent_text_) {
+    return;
+  }
+  // Store the value.
+  root_ui_achievement_percent_text_ = text;
+
+  // Apply it to any existing UI.
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->SetAchievementPercentText(root_ui_achievement_percent_text_);
+    }
+  }
+}
+
+void ClassicAppMode::SetRootUILevelText(const std::string text) {
+  assert(g_base->InLogicThread());
+  if (text == root_ui_level_text_) {
+    return;
+  }
+
+  // Store the value.
+  root_ui_level_text_ = text;
+
+  // Apply it to any existing UI.
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->SetLevelText(root_ui_level_text_);
+    }
+  }
+}
+
+void ClassicAppMode::SetRootUIXPText(const std::string text) {
+  assert(g_base->InLogicThread());
+  if (text == root_ui_xp_text_) {
+    return;
+  }
+
+  // Store the value.
+  root_ui_xp_text_ = text;
+
+  // Apply it to any existing UI.
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->SetXPText(root_ui_xp_text_);
+    }
+  }
+}
+
+void ClassicAppMode::SetRootUIInboxCount(int count, bool is_max) {
+  assert(g_base->InLogicThread());
+  if (count == root_ui_inbox_count_ && is_max == root_ui_inbox_count_is_max_) {
+    return;
+  }
+
+  // Store the value.
+  root_ui_inbox_count_ = count;
+  root_ui_inbox_count_is_max_ = is_max;
+
+  // Apply it to any existing UI.
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->SetInboxCount(root_ui_inbox_count_,
+                                 root_ui_inbox_count_is_max_);
+    }
+  }
+}
+
+void ClassicAppMode::SetRootUIGoldPass(bool enabled) {
+  assert(g_base->InLogicThread());
+  if (enabled == root_ui_gold_pass_) {
+    return;
+  }
+
+  // Store the value.
+  root_ui_gold_pass_ = enabled;
+
+  // Apply it to any existing UI.
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->SetTokensMeterValue(root_ui_tokens_meter_value_,
+                                       root_ui_gold_pass_);
+    }
+  }
+}
+
+void ClassicAppMode::SetHaveLiveAccountValues(bool have_live_values) {
+  if (have_live_values == root_ui_have_live_values_) {
+    return;
+  }
+
+  // Store the value.
+  root_ui_have_live_values_ = have_live_values;
+
+  // Apply it to any existing UI.
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->SetHaveLiveValues(root_ui_have_live_values_);
+    }
+  }
+}
+
+void ClassicAppMode::SetRootUIChests(
+    const std::string& chest_0_appearance,
+    const std::string& chest_1_appearance,
+    const std::string& chest_2_appearance,
+    const std::string& chest_3_appearance, seconds_t chest_0_unlock_time,
+    seconds_t chest_1_unlock_time, seconds_t chest_2_unlock_time,
+    seconds_t chest_3_unlock_time, seconds_t chest_0_ad_allow_time,
+    seconds_t chest_1_ad_allow_time, seconds_t chest_2_ad_allow_time,
+    seconds_t chest_3_ad_allow_time) {
+  assert(g_base->InLogicThread());
+  if (chest_0_appearance == root_ui_chest_0_appearance_
+      && chest_1_appearance == root_ui_chest_1_appearance_
+      && chest_2_appearance == root_ui_chest_2_appearance_
+      && chest_3_appearance == root_ui_chest_3_appearance_
+      && chest_0_unlock_time == root_ui_chest_0_unlock_time_
+      && chest_1_unlock_time == root_ui_chest_1_unlock_time_
+      && chest_2_unlock_time == root_ui_chest_2_unlock_time_
+      && chest_3_unlock_time == root_ui_chest_3_unlock_time_
+      && chest_0_ad_allow_time == root_ui_chest_0_ad_allow_time_
+      && chest_1_ad_allow_time == root_ui_chest_1_ad_allow_time_
+      && chest_2_ad_allow_time == root_ui_chest_2_ad_allow_time_
+      && chest_3_ad_allow_time == root_ui_chest_3_ad_allow_time_) {
+    return;
+  }
+
+  // Store the values.
+  root_ui_chest_0_appearance_ = chest_0_appearance;
+  root_ui_chest_1_appearance_ = chest_1_appearance;
+  root_ui_chest_2_appearance_ = chest_2_appearance;
+  root_ui_chest_3_appearance_ = chest_3_appearance;
+  root_ui_chest_0_unlock_time_ = chest_0_unlock_time;
+  root_ui_chest_1_unlock_time_ = chest_1_unlock_time;
+  root_ui_chest_2_unlock_time_ = chest_2_unlock_time;
+  root_ui_chest_3_unlock_time_ = chest_3_unlock_time;
+  root_ui_chest_0_ad_allow_time_ = chest_0_ad_allow_time;
+  root_ui_chest_1_ad_allow_time_ = chest_1_ad_allow_time;
+  root_ui_chest_2_ad_allow_time_ = chest_2_ad_allow_time;
+  root_ui_chest_3_ad_allow_time_ = chest_3_ad_allow_time;
+
+  // Apply it to any existing UI.
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->SetChests(
+          root_ui_chest_0_appearance_, root_ui_chest_1_appearance_,
+          root_ui_chest_2_appearance_, root_ui_chest_3_appearance_,
+          root_ui_chest_0_unlock_time_, root_ui_chest_1_unlock_time_,
+          root_ui_chest_2_unlock_time_, root_ui_chest_3_unlock_time_,
+          root_ui_chest_0_ad_allow_time_, root_ui_chest_1_ad_allow_time_,
+          root_ui_chest_2_ad_allow_time_, root_ui_chest_3_ad_allow_time_);
+    }
+  }
+}
+
+auto ClassicAppMode::GetBottomLeftEdgeHeight() -> float {
+  assert(g_base->InLogicThread());
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      return root_widget->bottom_left_height();
+    }
+  }
+  return 0.0f;
+}
+
+void ClassicAppMode::AnimateRootUIChestUnlockTime(const std::string& chestid,
+                                                  seconds_t duration,
+                                                  seconds_t startvalue,
+                                                  seconds_t endvalue) {
+  assert(g_base->InLogicThread());
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->AnimateChestUnlockTime(chestid, duration, startvalue,
+                                          endvalue);
+    }
+  }
+}
+
+void ClassicAppMode::AnimateRootUITickets(seconds_t duration, int startvalue,
+                                          int endvalue) {
+  assert(g_base->InLogicThread());
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->AnimateTickets(duration, startvalue, endvalue);
+    }
+  }
+}
+
+void ClassicAppMode::AnimateRootUITokens(seconds_t duration, int startvalue,
+                                         int endvalue) {
+  assert(g_base->InLogicThread());
+  if (uiv1_) {
+    if (auto* root_widget = uiv1_->root_widget()) {
+      root_widget->AnimateTokens(duration, startvalue, endvalue);
+    }
   }
 }
 

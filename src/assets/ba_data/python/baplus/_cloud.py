@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, overload
 
+from efro.call import CallbackSet
 import babase
 
 if TYPE_CHECKING:
@@ -14,8 +15,8 @@ if TYPE_CHECKING:
 
     from efro.message import Message, Response
     import bacommon.cloud
+    import bacommon.bs
 
-DEBUG_LOG = False
 
 # TODO: Should make it possible to define a protocol in bacommon.cloud and
 # autogenerate this. That would give us type safety between this and
@@ -24,6 +25,12 @@ DEBUG_LOG = False
 
 class CloudSubsystem(babase.AppSubsystem):
     """Manages communication with cloud components."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.on_connectivity_changed_callbacks: CallbackSet[
+            Callable[[bool], None]
+        ] = CallbackSet()
 
     @property
     def connected(self) -> bool:
@@ -40,15 +47,17 @@ class CloudSubsystem(babase.AppSubsystem):
 
     def on_connectivity_changed(self, connected: bool) -> None:
         """Called when cloud connectivity state changes."""
-        if DEBUG_LOG:
-            logging.debug('CloudSubsystem: Connectivity is now %s.', connected)
+        babase.balog.debug('Connectivity is now %s.', connected)
 
         plus = babase.app.plus
         assert plus is not None
 
-        # Inform things that use this.
-        # (TODO: should generalize this into some sort of registration system)
-        plus.accounts.on_cloud_connectivity_changed(connected)
+        # Fire any registered callbacks for this.
+        for call in self.on_connectivity_changed_callbacks.getcalls():
+            try:
+                call(connected)
+            except Exception:
+                logging.exception('Error in connectivity-changed callback.')
 
     @overload
     def send_message_cb(
@@ -112,9 +121,72 @@ class CloudSubsystem(babase.AppSubsystem):
     @overload
     def send_message_cb(
         self,
-        msg: bacommon.cloud.BSPrivatePartyMessage,
+        msg: bacommon.bs.PrivatePartyMessage,
         on_response: Callable[
-            [bacommon.cloud.BSPrivatePartyResponse | Exception], None
+            [bacommon.bs.PrivatePartyResponse | Exception], None
+        ],
+    ) -> None: ...
+
+    @overload
+    def send_message_cb(
+        self,
+        msg: bacommon.bs.InboxRequestMessage,
+        on_response: Callable[
+            [bacommon.bs.InboxRequestResponse | Exception], None
+        ],
+    ) -> None: ...
+
+    @overload
+    def send_message_cb(
+        self,
+        msg: bacommon.bs.ClientUIActionMessage,
+        on_response: Callable[
+            [bacommon.bs.ClientUIActionResponse | Exception], None
+        ],
+    ) -> None: ...
+
+    @overload
+    def send_message_cb(
+        self,
+        msg: bacommon.bs.ChestInfoMessage,
+        on_response: Callable[
+            [bacommon.bs.ChestInfoResponse | Exception], None
+        ],
+    ) -> None: ...
+
+    @overload
+    def send_message_cb(
+        self,
+        msg: bacommon.bs.ChestActionMessage,
+        on_response: Callable[
+            [bacommon.bs.ChestActionResponse | Exception], None
+        ],
+    ) -> None: ...
+
+    @overload
+    def send_message_cb(
+        self,
+        msg: bacommon.bs.ScoreSubmitMessage,
+        on_response: Callable[
+            [bacommon.bs.ScoreSubmitResponse | Exception], None
+        ],
+    ) -> None: ...
+
+    @overload
+    def send_message_cb(
+        self,
+        msg: bacommon.cloud.SecureDataCheckMessage,
+        on_response: Callable[
+            [bacommon.cloud.SecureDataCheckResponse | Exception], None
+        ],
+    ) -> None: ...
+
+    @overload
+    def send_message_cb(
+        self,
+        msg: bacommon.cloud.SecureDataCheckerRequest,
+        on_response: Callable[
+            [bacommon.cloud.SecureDataCheckerResponse | Exception], None
         ],
     ) -> None: ...
 
@@ -128,14 +200,8 @@ class CloudSubsystem(babase.AppSubsystem):
         The provided on_response call will be run in the logic thread
         and passed either the response or the error that occurred.
         """
-
-        del msg  # Unused.
-
-        babase.pushcall(
-            babase.Call(
-                on_response,
-                RuntimeError('Cloud functionality is not available.'),
-            )
+        raise NotImplementedError(
+            'Cloud functionality is not present in this build.'
         )
 
     @overload
@@ -158,7 +224,9 @@ class CloudSubsystem(babase.AppSubsystem):
 
         Must be called from a background thread.
         """
-        raise RuntimeError('Cloud functionality is not available.')
+        raise NotImplementedError(
+            'Cloud functionality is not present in this build.'
+        )
 
     @overload
     async def send_message_async(
@@ -175,7 +243,35 @@ class CloudSubsystem(babase.AppSubsystem):
 
         Must be called from the logic thread.
         """
-        raise RuntimeError('Cloud functionality is not available.')
+        raise NotImplementedError(
+            'Cloud functionality is not present in this build.'
+        )
+
+    def subscribe_test(
+        self, updatecall: Callable[[int | None], None]
+    ) -> babase.CloudSubscription:
+        """Subscribe to some test data."""
+        raise NotImplementedError(
+            'Cloud functionality is not present in this build.'
+        )
+
+    def subscribe_classic_account_data(
+        self,
+        updatecall: Callable[[bacommon.bs.ClassicAccountLiveData], None],
+    ) -> babase.CloudSubscription:
+        """Subscribe to classic account data."""
+        raise NotImplementedError(
+            'Cloud functionality is not present in this build.'
+        )
+
+    def unsubscribe(self, subscription_id: int) -> None:
+        """Unsubscribe from some subscription.
+
+        Do not call this manually; it is called by CloudSubscription.
+        """
+        raise NotImplementedError(
+            'Cloud functionality is not present in this build.'
+        )
 
 
 def cloud_console_exec(code: str) -> None:

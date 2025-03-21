@@ -2,6 +2,9 @@
 
 #include "ballistica/scene_v1/python/class/python_class_material.h"
 
+#include <string>
+#include <vector>
+
 #include "ballistica/base/logic/logic.h"
 #include "ballistica/scene_v1/dynamics/material/impact_sound_material_action.h"
 #include "ballistica/scene_v1/dynamics/material/material.h"
@@ -120,7 +123,7 @@ auto PythonClassMaterial::tp_new(PyTypeObject* type, PyObject* args,
       return nullptr;
     }
     if (name_obj != Py_None) {
-      name = Python::GetPyString(name_obj);
+      name = Python::GetString(name_obj);
     } else {
       name = Python::GetPythonFileLocation();
     }
@@ -144,7 +147,7 @@ void PythonClassMaterial::Delete(Object::Ref<Material>* m) {
   assert(g_base->InLogicThread());
 
   // If we're the py-object for a material, clear them out.
-  if (m->Exists()) {
+  if (m->exists()) {
     assert((*m)->py_object() != nullptr);
     (*m)->set_py_object(nullptr);
   }
@@ -174,8 +177,8 @@ auto PythonClassMaterial::tp_repr(PythonClassMaterial* self) -> PyObject* {
   BA_PYTHON_CATCH;
 }
 
-auto PythonClassMaterial::tp_getattro(PythonClassMaterial* self,
-                                      PyObject* attr) -> PyObject* {
+auto PythonClassMaterial::tp_getattro(PythonClassMaterial* self, PyObject* attr)
+    -> PyObject* {
   BA_PYTHON_TRY;
 
   // Assuming this will always be a str?
@@ -184,7 +187,7 @@ auto PythonClassMaterial::tp_getattro(PythonClassMaterial* self,
   const char* s = PyUnicode_AsUTF8(attr);
 
   if (!strcmp(s, ATTR_LABEL)) {
-    Material* material = self->material_->Get();
+    Material* material = self->material_->get();
     if (!material) {
       throw Exception("Invalid Material.", PyExcType::kNotFound);
     }
@@ -229,7 +232,7 @@ auto PythonClassMaterial::Dir(PythonClassMaterial* self) -> PyObject* {
   for (const char** name = extra_dir_attrs; *name != nullptr; name++) {
     PyList_Append(
         dir_list,
-        PythonRef(PyUnicode_FromString(*name), PythonRef::kSteal).Get());
+        PythonRef(PyUnicode_FromString(*name), PythonRef::kSteal).get());
   }
   PyList_Sort(dir_list);
   return dir_list;
@@ -255,7 +258,7 @@ auto PythonClassMaterial::AddActions(PythonClassMaterial* self, PyObject* args,
     DoAddConditions(conditions_obj, &conditions);
   }
 
-  Material* m = self->material_->Get();
+  Material* m = self->material_->get();
   if (!m) {
     throw Exception("Invalid Material.", PyExcType::kNotFound);
   }
@@ -538,7 +541,7 @@ void DoAddConditions(PyObject* cond_obj,
       Object::Ref<MaterialConditionNode> c2_prev;
       for (Py_ssize_t i = 0; i < (size - 1); i += 2) {
         c2 = Object::New<MaterialConditionNode>();
-        if (c2_prev.Exists()) {
+        if (c2_prev.exists()) {
           c2->left_child = c2_prev;
         } else {
           DoAddConditions(PyTuple_GET_ITEM(cond_obj, i), &c2->left_child);
@@ -547,7 +550,7 @@ void DoAddConditions(PyObject* cond_obj,
 
         // Pull a string from between to set up our opmode with.
         std::string opmode_str =
-            Python::GetPyString(PyTuple_GET_ITEM(cond_obj, i + 1));
+            Python::GetString(PyTuple_GET_ITEM(cond_obj, i + 1));
         const char* opmode = opmode_str.c_str();
         if (!strcmp(opmode, "&&") || !strcmp(opmode, "and")) {
           c2->opmode = MaterialConditionNode::OpMode::AND_OPERATOR;
@@ -579,13 +582,13 @@ void DoAddAction(PyObject* actions_obj,
   Py_ssize_t size = PyTuple_GET_SIZE(actions_obj);
   assert(size > 0);
   PyObject* obj = PyTuple_GET_ITEM(actions_obj, 0);
-  std::string type = Python::GetPyString(obj);
+  std::string type = Python::GetString(obj);
   if (type == "call") {
     if (size != 3) {
       throw Exception("Expected 3 values for command action tuple.",
                       PyExcType::kValue);
     }
-    std::string when = Python::GetPyString(PyTuple_GET_ITEM(actions_obj, 1));
+    std::string when = Python::GetString(PyTuple_GET_ITEM(actions_obj, 1));
     bool at_disconnect;
     if (when == "at_connect") {
       at_disconnect = false;
@@ -603,7 +606,7 @@ void DoAddAction(PyObject* actions_obj,
       throw Exception("Expected >= 4 values for message action tuple.",
                       PyExcType::kValue);
     }
-    std::string target = Python::GetPyString(PyTuple_GET_ITEM(actions_obj, 1));
+    std::string target = Python::GetString(PyTuple_GET_ITEM(actions_obj, 1));
     bool target_other_val;
     if (target == "our_node") {
       target_other_val = false;
@@ -613,7 +616,7 @@ void DoAddAction(PyObject* actions_obj,
       throw Exception("Invalid message target: '" + target + "'.",
                       PyExcType::kValue);
     }
-    std::string when = Python::GetPyString(PyTuple_GET_ITEM(actions_obj, 2));
+    std::string when = Python::GetString(PyTuple_GET_ITEM(actions_obj, 2));
     bool at_disconnect;
     if (when == "at_connect") {
       at_disconnect = false;
@@ -643,7 +646,7 @@ void DoAddAction(PyObject* actions_obj,
           "Expected 3 values for modify_node_collision action tuple.",
           PyExcType::kValue);
     }
-    std::string attr = Python::GetPyString(PyTuple_GET_ITEM(actions_obj, 1));
+    std::string attr = Python::GetString(PyTuple_GET_ITEM(actions_obj, 1));
     NodeCollideAttr attr_type;
     if (attr == "collide") {
       attr_type = NodeCollideAttr::kCollideNode;
@@ -653,7 +656,7 @@ void DoAddAction(PyObject* actions_obj,
     }
 
     // Pull value.
-    float val = Python::GetPyFloat(PyTuple_GET_ITEM(actions_obj, 2));
+    float val = Python::GetFloat(PyTuple_GET_ITEM(actions_obj, 2));
     (*actions).push_back(
         Object::New<MaterialAction, NodeModMaterialAction>(attr_type, val));
   } else if (type == "modify_part_collision") {
@@ -663,7 +666,7 @@ void DoAddAction(PyObject* actions_obj,
           PyExcType::kValue);
     }
     PartCollideAttr attr_type;
-    std::string attr = Python::GetPyString(PyTuple_GET_ITEM(actions_obj, 1));
+    std::string attr = Python::GetString(PyTuple_GET_ITEM(actions_obj, 1));
     if (attr == "physical") {
       attr_type = PartCollideAttr::kPhysical;
     } else if (attr == "friction") {
@@ -682,7 +685,7 @@ void DoAddAction(PyObject* actions_obj,
       throw Exception("Invalid part mod attr: '" + attr + "'.",
                       PyExcType::kValue);
     }
-    float val = Python::GetPyFloat(PyTuple_GET_ITEM(actions_obj, 2));
+    float val = Python::GetFloat(PyTuple_GET_ITEM(actions_obj, 2));
     (*actions).push_back(
         Object::New<MaterialAction, PartModMaterialAction>(attr_type, val));
   } else if (type == "sound") {
@@ -692,7 +695,7 @@ void DoAddAction(PyObject* actions_obj,
     }
     SceneSound* sound =
         SceneV1Python::GetPySceneSound(PyTuple_GET_ITEM(actions_obj, 1));
-    float volume = Python::GetPyFloat(PyTuple_GET_ITEM(actions_obj, 2));
+    float volume = Python::GetFloat(PyTuple_GET_ITEM(actions_obj, 2));
     (*actions).push_back(
         Object::New<MaterialAction, SoundMaterialAction>(sound, volume));
   } else if (type == "impact_sound") {
@@ -716,8 +719,8 @@ void DoAddAction(PyObject* actions_obj,
       throw Exception("One or more invalid sound refs passed.",
                       PyExcType::kValue);
     }
-    float target_impulse = Python::GetPyFloat(PyTuple_GET_ITEM(actions_obj, 2));
-    float volume = Python::GetPyFloat(PyTuple_GET_ITEM(actions_obj, 3));
+    float target_impulse = Python::GetFloat(PyTuple_GET_ITEM(actions_obj, 2));
+    float volume = Python::GetFloat(PyTuple_GET_ITEM(actions_obj, 3));
     (*actions).push_back(Object::New<MaterialAction, ImpactSoundMaterialAction>(
         sounds, target_impulse, volume));
   } else if (type == "skid_sound") {
@@ -727,8 +730,8 @@ void DoAddAction(PyObject* actions_obj,
     }
     SceneSound* sound =
         SceneV1Python::GetPySceneSound(PyTuple_GET_ITEM(actions_obj, 1));
-    float target_impulse = Python::GetPyFloat(PyTuple_GET_ITEM(actions_obj, 2));
-    float volume = Python::GetPyFloat(PyTuple_GET_ITEM(actions_obj, 3));
+    float target_impulse = Python::GetFloat(PyTuple_GET_ITEM(actions_obj, 2));
+    float volume = Python::GetFloat(PyTuple_GET_ITEM(actions_obj, 3));
     (*actions).push_back(Object::New<MaterialAction, SkidSoundMaterialAction>(
         sound, target_impulse, volume));
   } else if (type == "roll_sound") {
@@ -738,8 +741,8 @@ void DoAddAction(PyObject* actions_obj,
     }
     SceneSound* sound =
         SceneV1Python::GetPySceneSound(PyTuple_GET_ITEM(actions_obj, 1));
-    float target_impulse = Python::GetPyFloat(PyTuple_GET_ITEM(actions_obj, 2));
-    float volume = Python::GetPyFloat(PyTuple_GET_ITEM(actions_obj, 3));
+    float target_impulse = Python::GetFloat(PyTuple_GET_ITEM(actions_obj, 2));
+    float volume = Python::GetFloat(PyTuple_GET_ITEM(actions_obj, 3));
     (*actions).push_back(Object::New<MaterialAction, RollSoundMaterialAction>(
         sound, target_impulse, volume));
   } else {

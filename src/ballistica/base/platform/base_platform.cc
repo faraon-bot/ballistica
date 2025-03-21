@@ -3,23 +3,25 @@
 #include "ballistica/base/platform/base_platform.h"
 
 #include <csignal>
+#include <cstdio>
+#include <list>
+#include <string>
 
 #if !BA_OSTYPE_WINDOWS
 #include <fcntl.h>
 #include <poll.h>
 #endif
 
+#include <Python.h>
+
 #include "ballistica/base/app_adapter/app_adapter.h"
 #include "ballistica/base/base.h"
-#include "ballistica/base/input/input.h"
 #include "ballistica/base/logic/logic.h"
 #include "ballistica/base/python/base_python.h"
-#include "ballistica/base/ui/ui.h"
 #include "ballistica/core/core.h"
 #include "ballistica/core/platform/core_platform.h"
 #include "ballistica/shared/foundation/event_loop.h"
 #include "ballistica/shared/python/python.h"
-#include "ballistica/shared/python/python_sys.h"
 
 namespace ballistica::base {
 
@@ -64,8 +66,8 @@ auto BasePlatform::GetPublicDeviceUUID() -> std::string {
     // We used to plug version in directly here, but that caused uuids to
     // shuffle too rapidly during periods of rapid development. This
     // keeps it more constant.
-    // __last_rand_uuid_component_shuffle_date__ 2024 6 13
-    auto rand_uuid_component{"1URRE62C7234VP9L1BUPJ1P7QT7Q8YW3"};
+    // __last_rand_uuid_component_shuffle_date__ 2024 12 11
+    auto rand_uuid_component{"ACIMGEQUN3F6CIUMFYO3X6GYLPTTSPOZ"};
 
     inputs.emplace_back(rand_uuid_component);
     auto gil{Python::ScopedInterpreterLock()};
@@ -102,12 +104,13 @@ void BasePlatform::DoPurchase(const std::string& item) {
 }
 
 void BasePlatform::RestorePurchases() {
-  Log(LogLevel::kError, "RestorePurchases() unimplemented");
+  g_core->Log(LogName::kBa, LogLevel::kError,
+              "RestorePurchases() unimplemented");
 }
 
 void BasePlatform::PurchaseAck(const std::string& purchase,
                                const std::string& order_id) {
-  Log(LogLevel::kError, "PurchaseAck() unimplemented");
+  g_core->Log(LogName::kBa, LogLevel::kError, "PurchaseAck() unimplemented");
 }
 
 void BasePlatform::OpenURL(const std::string& url) {
@@ -132,7 +135,8 @@ void BasePlatform::OverlayWebBrowserOpenURL(const std::string& url) {
 
   std::scoped_lock lock(web_overlay_mutex_);
   if (web_overlay_open_) {
-    Log(LogLevel::kError,
+    g_core->Log(
+        LogName::kBa, LogLevel::kError,
         "OverlayWebBrowserOnClose called with already existing overlay.");
     return;
   }
@@ -153,8 +157,8 @@ auto BasePlatform::OverlayWebBrowserIsOpen() -> bool {
 void BasePlatform::OverlayWebBrowserOnClose() {
   std::scoped_lock lock(web_overlay_mutex_);
   if (!web_overlay_open_) {
-    Log(LogLevel::kError,
-        "OverlayWebBrowserOnClose called with no known overlay.");
+    g_core->Log(LogName::kBa, LogLevel::kError,
+                "OverlayWebBrowserOnClose called with no known overlay.");
   }
   web_overlay_open_ = false;
 }
@@ -172,12 +176,14 @@ void BasePlatform::OverlayWebBrowserClose() {
 }
 
 void BasePlatform::DoOverlayWebBrowserOpenURL(const std::string& url) {
-  Log(LogLevel::kError, "DoOpenURLInOverlayBrowser unimplemented");
+  g_core->Log(LogName::kBa, LogLevel::kError,
+              "DoOpenURLInOverlayBrowser unimplemented");
 }
 
 void BasePlatform::DoOverlayWebBrowserClose() {
   // As a default, use Python's webbrowser module functionality.
-  Log(LogLevel::kError, "DoOverlayWebBrowserClose unimplemented");
+  g_core->Log(LogName::kBa, LogLevel::kError,
+              "DoOverlayWebBrowserClose unimplemented");
 }
 
 #if !BA_OSTYPE_WINDOWS
@@ -186,7 +192,8 @@ static void HandleSIGINT(int s) {
     g_base->logic->event_loop()->PushCall(
         [] { g_base->logic->HandleInterruptSignal(); });
   } else {
-    Log(LogLevel::kError,
+    g_core->Log(
+        LogName::kBa, LogLevel::kError,
         "SigInt handler called before g_base->logic->event_loop exists.");
   }
 }
@@ -195,7 +202,8 @@ static void HandleSIGTERM(int s) {
     g_base->logic->event_loop()->PushCall(
         [] { g_base->logic->HandleTerminateSignal(); });
   } else {
-    Log(LogLevel::kError,
+    g_core->Log(
+        LogName::kBa, LogLevel::kError,
         "SigInt handler called before g_base->logic->event_loop exists.");
   }
 }
@@ -207,14 +215,14 @@ void BasePlatform::SetupInterruptHandling() {
   throw Exception();
 #else
   {
-    struct sigaction handler {};
+    struct sigaction handler{};
     handler.sa_handler = HandleSIGINT;
     sigemptyset(&handler.sa_mask);
     handler.sa_flags = 0;
     sigaction(SIGINT, &handler, nullptr);
   }
   {
-    struct sigaction handler {};
+    struct sigaction handler{};
     handler.sa_handler = HandleSIGTERM;
     sigemptyset(&handler.sa_mask);
     handler.sa_flags = 0;
@@ -256,7 +264,7 @@ void BasePlatform::InvokeStringEditor(PyObject* string_edit_adapter) {
 void BasePlatform::StringEditorApply(const std::string& val) {
   BA_PRECONDITION(HaveStringEditor());
   BA_PRECONDITION(g_base->InLogicThread());
-  BA_PRECONDITION(string_edit_adapter_.Exists());
+  BA_PRECONDITION(string_edit_adapter_.exists());
   auto args = PythonRef::Stolen(Py_BuildValue("(s)", val.c_str()));
   string_edit_adapter_.GetAttr("apply").Call(args);
   string_edit_adapter_.Release();
@@ -266,7 +274,7 @@ void BasePlatform::StringEditorApply(const std::string& val) {
 void BasePlatform::StringEditorCancel() {
   BA_PRECONDITION(HaveStringEditor());
   BA_PRECONDITION(g_base->InLogicThread());
-  BA_PRECONDITION(string_edit_adapter_.Exists());
+  BA_PRECONDITION(string_edit_adapter_.exists());
   string_edit_adapter_.GetAttr("cancel").Call();
   string_edit_adapter_.Release();
 }
@@ -274,17 +282,20 @@ void BasePlatform::StringEditorCancel() {
 void BasePlatform::DoInvokeStringEditor(const std::string& title,
                                         const std::string& value,
                                         std::optional<int> max_chars) {
-  Log(LogLevel::kError, "FIXME: DoInvokeStringEditor() unimplemented");
+  g_core->Log(LogName::kBa, LogLevel::kError,
+              "FIXME: DoInvokeStringEditor() unimplemented");
 }
 
 auto BasePlatform::SupportsOpenDirExternally() -> bool { return false; }
 
 void BasePlatform::OpenDirExternally(const std::string& path) {
-  Log(LogLevel::kError, "OpenDirExternally() unimplemented");
+  g_core->Log(LogName::kBa, LogLevel::kError,
+              "OpenDirExternally() unimplemented");
 }
 
 void BasePlatform::OpenFileExternally(const std::string& path) {
-  Log(LogLevel::kError, "OpenFileExternally() unimplemented");
+  g_core->Log(LogName::kBa, LogLevel::kError,
+              "OpenFileExternally() unimplemented");
 }
 
 auto BasePlatform::SafeStdinFGetS(char* s, int n, FILE* iop) -> char* {
