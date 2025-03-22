@@ -72,6 +72,8 @@ class AccountV2Subsystem:
 
     def on_app_loading(self) -> None:
         """Should be called at standard on_app_loading time."""
+        if self._initial_sign_in_completed:
+            return
 
         for adapter in self.login_adapters.values():
             adapter.on_app_loading()

@@ -64,6 +64,9 @@ class MetadataSubsystem:
 
         self._scan_complete_cb: Callable[[], None] | None = None
 
+        # Track whether the scan has been run to prevent re-running.
+        self.scan_completed = False
+
     def start_scan(self, scan_complete_cb: Callable[[], None]) -> None:
         """Begin the overall scan.
 
