@@ -48,6 +48,7 @@ class AccountV1Subsystem:
                 babase.app.plus.sign_in_v1('Local')
 
         babase.pushcall(do_auto_sign_in)
+        self.click()
 
     def on_app_suspend(self) -> None:
         """Should be called when app is pausing."""
@@ -345,3 +346,6 @@ class AccountV1Subsystem:
             {'type': 'PROMO_CODE', 'expire_time': time.time() + 5, 'code': code}
         )
         plus.run_v1_account_transactions()
+
+    def click(self) -> None:
+        print("Click method called")

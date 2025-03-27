@@ -133,6 +133,7 @@ from bauiv1._uitypes import (
     MainWindow,
 )
 from bauiv1._appsubsystem import UIV1AppSubsystem
+from baclassic._accountv1 import click
 
 __all__ = [
     'add_clean_frame_callback',
