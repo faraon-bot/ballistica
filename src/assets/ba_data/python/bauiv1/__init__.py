@@ -1,6 +1,5 @@
-# Released under the MIT License. See LICENSE for details.
-#
-"""Ballistica user interface api version 1"""
+
+#"""Ballistica user interface api version 1"""
 
 # ba_meta require api 9
 
